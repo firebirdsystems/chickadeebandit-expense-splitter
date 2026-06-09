@@ -1,0 +1,1310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expense Splitter</title>
+  <style>
+    /* ── Reset ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Theme variables ──────────────────────────────────── */
+    :root {
+      --bg:       var(--hub-bg,           #f9fafb);
+      --card:     var(--hub-surface,      #ffffff);
+      --border:   var(--hub-border,       #e5e7eb);
+      --text:     var(--hub-text,         #111827);
+      --muted:    var(--hub-text-muted,   #6b7280);
+      --accent:   var(--hub-primary,      #0891b2);
+      --accent-h: var(--hub-primary-hover,#0e7490);
+      --accent-fg:var(--hub-primary-fg,   #ffffff);
+      --radius:   var(--hub-radius,       0.5rem);
+      --shadow:   0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+      --green:    #16a34a; --green-lt: #dcfce7;
+      --red:      #dc2626; --red-lt:   #fee2e2;
+      --amber:    #d97706; --amber-lt: #fef3c7;
+    }
+
+    /* ── Base ────────────────────────────────────────────── */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: var(--hub-font-size, 15px);
+      line-height: 1.5;
+    }
+    .app-container { max-width: 600px; margin: 0 auto; padding: 14px 14px 80px; }
+
+    /* ── Header ──────────────────────────────────────────── */
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--accent); color: var(--accent-fg);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    .header-title { font-size: 1.15rem; font-weight: 700; }
+    .header-sub   { font-size: 0.78rem; opacity: .75; margin-top: 1px; }
+
+    /* ── Balance banner ──────────────────────────────────── */
+    .balance-banner {
+      border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      border: 1.5px solid var(--border);
+      background: var(--card);
+      box-shadow: var(--shadow);
+      animation: fadeIn .2s ease;
+    }
+    .balance-banner.positive { border-color: var(--green); background: var(--green-lt); }
+    .balance-banner.negative { border-color: var(--red);   background: var(--red-lt);   }
+    .balance-banner.settled  { border-color: var(--border); }
+    .balance-label  { font-size: .85rem; color: var(--muted); font-weight: 500; }
+    .balance-amount { font-size: 1.6rem; font-weight: 800; letter-spacing: -.5px; }
+    .balance-banner.positive .balance-label  { color: var(--green); }
+    .balance-banner.negative .balance-label  { color: var(--red); }
+    .balance-banner.positive .balance-amount { color: var(--green); }
+    .balance-banner.negative .balance-amount { color: var(--red); }
+    .balance-settled-msg { font-size: 1rem; font-weight: 600; color: var(--muted); }
+
+    /* ── Tabs ────────────────────────────────────────────── */
+    .tabs {
+      display: flex; gap: 4px;
+      background: var(--border); border-radius: 10px; padding: 3px;
+      margin-bottom: 14px;
+    }
+    .tab {
+      flex: 1; padding: 7px; border: none; cursor: pointer;
+      border-radius: 8px; font-size: .85rem; font-weight: 600;
+      color: var(--muted); background: transparent;
+      transition: all .15s;
+    }
+    .tab.active { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+
+    /* ── Section label ───────────────────────────────────── */
+    .section-label {
+      font-size: .75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; color: var(--muted); margin: 14px 0 8px;
+    }
+
+    /* ── Debt cards (Balances view) ──────────────────────── */
+    .debt-card {
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; box-shadow: var(--shadow); animation: slideIn .18s ease both;
+    }
+    .debt-card.i-owe   { border-color: var(--red);   background: var(--red-lt); }
+    .debt-card.they-owe{ border-color: var(--green); background: var(--green-lt); }
+    .debt-members { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+    .debt-arrow   { font-size: 1rem; color: var(--muted); flex-shrink: 0; }
+    .debt-names   { display: flex; flex-direction: column; min-width: 0; }
+    .debt-from, .debt-to { font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .debt-from    { font-weight: 700; }
+    .debt-verb    { font-size: .72rem; color: var(--muted); }
+    .debt-to      { font-weight: 600; color: var(--muted); }
+    .debt-right   { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+    .debt-amount  { font-size: 1.05rem; font-weight: 800; }
+
+    /* ── Expense cards ───────────────────────────────────── */
+    .expense-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 12px;
+      box-shadow: var(--shadow); cursor: pointer;
+      transition: border-color .13s, box-shadow .13s;
+      animation: slideIn .18s ease both;
+      content-visibility: auto; contain-intrinsic-size: 0 72px;
+    }
+    .expense-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(8,145,178,.12); }
+    .expense-icon  { font-size: 1.5rem; flex-shrink: 0; width: 36px; text-align: center; }
+    .expense-main  { flex: 1; min-width: 0; }
+    .expense-desc  { font-weight: 600; font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .expense-meta  { font-size: .78rem; color: var(--muted); display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+    .expense-right { text-align: right; flex-shrink: 0; }
+    .expense-amount     { font-weight: 800; font-size: 1rem; }
+    .expense-cat-label  { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+
+    /* ── Avatars ──────────────────────────────────────────── */
+    .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: .85rem; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .avatar-sm { width: 20px; height: 20px; font-size: .65rem; }
+
+    /* ── Buttons ──────────────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 8px 16px; border-radius: 8px; font-size: .875rem;
+      font-weight: 600; cursor: pointer; border: none; transition: opacity .15s;
+    }
+    .btn:disabled { opacity: .45; cursor: default; }
+    .btn-primary { background: var(--accent); color: var(--accent-fg); }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+    .btn-ghost   { background: transparent; color: var(--muted); border: 1.5px solid var(--border); }
+    .btn-ghost:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
+    .btn-danger  { background: var(--red); color: #fff; }
+    .btn-danger:hover:not(:disabled) { opacity: .88; }
+    .btn-sm      { padding: 5px 11px; font-size: .8rem; }
+    .btn-add {
+      background: rgba(255,255,255,.22); color: #fff; border: 1.5px solid rgba(255,255,255,.4);
+      padding: 7px 14px; border-radius: 8px; font-size: .85rem; font-weight: 700;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-add:hover { background: rgba(255,255,255,.35); }
+    .btn-settle { background: var(--card); color: var(--accent); border: 1.5px solid var(--accent); }
+    .btn-settle:hover { background: var(--accent); color: var(--accent-fg); }
+
+    /* ── Search & category filter ────────────────────────── */
+    .search-row { margin-bottom: 10px; }
+    .search-input {
+      width: 100%; padding: 9px 14px; border: 1.5px solid var(--border);
+      border-radius: 8px; font-size: .9rem; background: var(--card);
+      color: var(--text); outline: none; transition: border-color .15s;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .cat-filter {
+      display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px;
+      margin-bottom: 10px; scrollbar-width: none;
+    }
+    .cat-filter::-webkit-scrollbar { display: none; }
+    .cat-pill {
+      flex-shrink: 0; padding: 5px 12px; border-radius: 20px;
+      border: 1.5px solid var(--border); background: var(--card);
+      font-size: .8rem; font-weight: 600; cursor: pointer; color: var(--muted);
+      transition: all .13s; white-space: nowrap;
+    }
+    .cat-pill.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    .cat-pill:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Empty states ────────────────────────────────────── */
+    .empty-state {
+      text-align: center; padding: 48px 20px; color: var(--muted);
+      animation: fadeIn .25s ease;
+    }
+    .empty-icon  { font-size: 2.5rem; margin-bottom: 10px; }
+    .empty-title { font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .empty-sub   { font-size: .85rem; }
+
+    /* ── Skeleton loaders ────────────────────────────────── */
+    @keyframes shimmer {
+      from { background-position: -200% center; }
+      to   { background-position:  200% center; }
+    }
+    .sk {
+      background: linear-gradient(90deg, var(--border) 25%, var(--card) 50%, var(--border) 75%);
+      background-size: 200% auto;
+      animation: shimmer 1.3s linear infinite;
+      border-radius: var(--radius);
+      margin-bottom: 10px;
+    }
+    .sk-header  { height: 56px; }
+    .sk-banner  { height: 68px; }
+    .sk-tabs    { height: 42px; }
+    .sk-card    { height: 72px; }
+
+    /* ── Modal ───────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      display: flex; align-items: flex-end;
+      z-index: 200;
+      animation: fadeIn .15s ease;
+    }
+    .modal-sheet {
+      background: var(--card);
+      border-radius: calc(var(--radius) * 2) calc(var(--radius) * 2) 0 0;
+      width: 100%; max-height: 92dvh; overflow-y: auto;
+      animation: slideUp .22s cubic-bezier(.32,1,.23,1);
+      will-change: transform;
+      display: flex; flex-direction: column;
+    }
+    .modal-backdrop.closing .modal-sheet {
+      animation: slideDown .18s ease forwards;
+    }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 18px 10px; border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--card); z-index: 1;
+      flex-shrink: 0;
+    }
+    .modal-title  { font-size: 1rem; font-weight: 700; }
+    .modal-close  {
+      background: none; border: none; font-size: 1.4rem; cursor: pointer;
+      color: var(--muted); line-height: 1; padding: 2px 6px; border-radius: 4px;
+    }
+    .modal-close:hover { color: var(--text); background: var(--border); }
+    .modal-body   { padding: 16px 18px; flex: 1; overflow-y: auto; }
+    .modal-footer {
+      padding: 12px 18px; border-top: 1px solid var(--border);
+      display: flex; gap: 8px; justify-content: flex-end;
+      position: sticky; bottom: 0; background: var(--card); flex-shrink: 0;
+    }
+
+    /* ── Form elements ───────────────────────────────────── */
+    .form-group  { margin-bottom: 16px; }
+    .form-label  { font-size: .8rem; font-weight: 700; color: var(--muted); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: .04em; }
+    .text-input  {
+      width: 100%; padding: 9px 12px; border: 1.5px solid var(--border);
+      border-radius: 8px; font-size: .9rem; background: var(--card);
+      color: var(--text); outline: none; transition: border-color .15s;
+    }
+    .text-input:focus { border-color: var(--accent); }
+
+    /* Large amount input */
+    .amount-wrap {
+      display: flex; align-items: center; justify-content: center;
+      gap: 4px; margin-bottom: 18px; padding: 16px;
+      background: var(--bg); border-radius: var(--radius); border: 1.5px solid var(--border);
+    }
+    .amount-symbol { font-size: 2rem; font-weight: 700; color: var(--muted); line-height: 1; }
+    .amount-input  {
+      border: none; outline: none; background: transparent;
+      font-size: 2.4rem; font-weight: 800; color: var(--text);
+      width: 180px; text-align: center; font-family: inherit;
+    }
+    .amount-input::placeholder { color: var(--border); }
+    /* Hide number spinners */
+    .amount-input::-webkit-outer-spin-button,
+    .amount-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .amount-input[type=number] { -moz-appearance: textfield; }
+
+    /* Category pills in form */
+    .form-cat-pills {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .form-cat-pill {
+      padding: 5px 10px; border-radius: 20px;
+      border: 1.5px solid var(--border); background: var(--card);
+      font-size: .8rem; font-weight: 600; cursor: pointer; color: var(--muted);
+      transition: all .13s;
+    }
+    .form-cat-pill.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+
+    /* Member pill selector (paid-by: single select) */
+    .member-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .member-pill  {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 20px;
+      border: 1.5px solid var(--border); background: var(--card);
+      font-size: .82rem; font-weight: 600; cursor: pointer; color: var(--muted);
+      transition: all .13s;
+    }
+    .member-pill.active  { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
+    .member-pill:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+
+    /* Member checkbox grid (split-among: multi select) */
+    .member-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+    .member-check-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 20px;
+      border: 1.5px solid var(--border); background: var(--card);
+      font-size: .82rem; font-weight: 600; cursor: pointer; color: var(--muted);
+      transition: all .13s; user-select: none;
+    }
+    .member-check-pill.checked { border-color: var(--accent); background: #ecfeff; color: var(--accent); }
+    .member-check-pill input[type=checkbox] { display: none; }
+
+    /* Split method toggle */
+    .split-toggle { display: flex; gap: 4px; background: var(--border); border-radius: 8px; padding: 3px; }
+    .split-toggle-btn {
+      flex: 1; padding: 6px; border-radius: 6px; border: none; cursor: pointer;
+      font-size: .82rem; font-weight: 600; color: var(--muted); background: transparent;
+      transition: all .13s;
+    }
+    .split-toggle-btn.active { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+
+    /* Split preview */
+    .split-preview {
+      background: var(--bg); border-radius: var(--radius); padding: 12px 14px;
+      margin-top: 10px; border: 1px solid var(--border);
+    }
+    .split-preview-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 5px 0; border-bottom: 1px solid var(--border);
+    }
+    .split-preview-row:last-child { border-bottom: none; }
+    .split-preview-member { display: flex; align-items: center; gap: 7px; font-size: .85rem; font-weight: 600; }
+    .split-preview-amount { font-size: .85rem; font-weight: 700; color: var(--accent); }
+    .split-remaining { font-size: .8rem; font-weight: 600; margin-top: 8px; text-align: right; }
+    .split-remaining.ok  { color: var(--green); }
+    .split-remaining.bad { color: var(--red); }
+
+    .custom-amounts { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    .custom-row { display: flex; align-items: center; gap: 10px; }
+    .custom-row-label { display: flex; align-items: center; gap: 6px; flex: 1; font-size: .85rem; font-weight: 600; }
+    .custom-input {
+      width: 90px; padding: 7px 10px; border: 1.5px solid var(--border);
+      border-radius: 6px; font-size: .9rem; background: var(--card);
+      color: var(--text); outline: none; text-align: right;
+      transition: border-color .15s;
+    }
+    .custom-input:focus { border-color: var(--accent); }
+
+    /* Expense detail card */
+    .detail-amount { font-size: 2rem; font-weight: 800; margin-bottom: 2px; }
+    .detail-desc   { font-size: 1rem; font-weight: 600; color: var(--muted); margin-bottom: 16px; }
+    .detail-row    {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--border); font-size: .88rem;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key    { color: var(--muted); font-weight: 600; }
+    .detail-val    { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+
+    /* Toast notifications */
+    #toasts { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 300; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+    .toast {
+      padding: 10px 18px; border-radius: 8px; font-size: .88rem; font-weight: 600;
+      color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.2);
+      opacity: 0; transform: translateY(6px);
+      transition: opacity .22s ease, transform .22s ease;
+      white-space: nowrap;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.info    { background: var(--text); }
+    .toast.success { background: var(--green); }
+    .toast.error   { background: var(--red); }
+
+    /* Widget mode */
+    #widget-root {
+      padding: 14px; height: 100vh; display: flex; flex-direction: column;
+      justify-content: center; cursor: pointer;
+    }
+    .widget-balance { font-size: 1.4rem; font-weight: 800; }
+    .widget-label   { font-size: .78rem; color: var(--muted); margin-bottom: 4px; }
+    .widget-sub     { font-size: .78rem; color: var(--muted); margin-top: 4px; }
+    .widget-settled { font-size: .95rem; font-weight: 600; color: var(--muted); }
+
+    /* Animations */
+    @keyframes fadeIn  { from { opacity: 0 }                              to { opacity: 1 } }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: translateY(0) } }
+    @keyframes slideUp { from { transform: translateY(100%) }             to { transform: translateY(0) } }
+    @keyframes slideDown{ from { transform: translateY(0) }               to { transform: translateY(100%) } }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Skeleton shown while loading -->
+  <div id="skeleton-state">
+    <div class="app-container">
+      <div class="sk sk-header"></div>
+      <div class="sk sk-banner"></div>
+      <div class="sk sk-tabs"></div>
+      <div class="sk sk-card"></div>
+      <div class="sk sk-card"></div>
+      <div class="sk sk-card" style="height:56px"></div>
+    </div>
+  </div>
+
+  <!-- Widget mode container -->
+  <div id="widget-root" hidden></div>
+
+  <!-- Error state -->
+  <div id="error-state" hidden style="padding:40px 20px;text-align:center">
+    <div style="font-size:2rem;margin-bottom:10px">⚠️</div>
+    <div id="error-msg" style="color:var(--red);font-weight:600"></div>
+    <button class="btn btn-ghost" style="margin-top:16px" onclick="location.reload()">Retry</button>
+  </div>
+
+  <!-- Main content -->
+  <div id="main-content" hidden>
+    <div class="app-container">
+
+      <header class="header">
+        <div>
+          <div class="header-title">💸 Expense Splitter</div>
+          <div class="header-sub" id="header-sub"></div>
+        </div>
+        <button class="btn-add" onclick="window._openAdd()">+ Add</button>
+      </header>
+
+      <div id="balance-banner" class="balance-banner"></div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab active" id="tab-balances" onclick="window._switchTab('balances')">Balances</button>
+        <button class="tab"        id="tab-expenses" onclick="window._switchTab('expenses')">Expenses</button>
+      </div>
+
+      <!-- Balances view -->
+      <div id="view-balances" role="tabpanel"></div>
+
+      <!-- Expenses view -->
+      <div id="view-expenses" hidden role="tabpanel">
+        <div class="search-row">
+          <input type="search" id="search-input" class="search-input"
+                 placeholder="Search expenses…" autocomplete="off"
+                 oninput="window._onSearch(this.value)">
+        </div>
+        <div class="cat-filter" id="cat-filter"></div>
+        <div id="expense-list"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="toasts" aria-live="polite"></div>
+</div>
+
+<script type="module">
+import { esc, memberColor, initial, fmtMoney } from '/hub-sdk.js';
+import {
+  CATEGORIES, categoryFor,
+  computeBalances, simplifyDebts, computeSplits, validateCustomSplits,
+  fmtSplit, fmtDate, today,
+} from './logic.js';
+
+/* ── Runtime globals ─────────────────────────────────── */
+const CONTEXT = window.__CONTEXT_URL ?? '';
+const DB      = window.__DB_URL      ?? '';
+const ME      = window.__CURRENT_MEMBER ?? { id: 'demo-me', name: 'You', role: 'adult' };
+const APP_ID  = window.__APP_ID ?? 'expense-splitter';
+
+/* ── App state ───────────────────────────────────────── */
+let members      = [];
+let memberMap    = new Map();
+let expenses     = [];
+let splits       = [];
+let settlements  = [];
+let balances     = {};
+let transactions = [];
+
+let activeTab      = 'balances';
+let activeCategory = 'all';
+let searchQuery    = '';
+let searchTimer    = null;
+
+/* ── DB helper ───────────────────────────────────────── */
+async function db(sql, params = []) {
+  if (!DB) return { rows: [] };
+  const res = await fetch(DB, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sql, params }),
+  });
+  if (!res.ok) throw new Error(`DB error ${res.status}`);
+  return res.json();
+}
+
+/* ── Init ────────────────────────────────────────────── */
+async function init() {
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.get('view') === 'widget') {
+    try {
+      await Promise.all([loadMembers(), loadData()]);
+      recompute();
+      renderWidget();
+    } catch { renderWidget(); }
+    return;
+  }
+
+  try {
+    await Promise.all([loadMembers(), loadData()]);
+    recompute();
+    showMain();
+    renderAll();
+
+    const expenseId = params.get('expenseId');
+    if (expenseId) {
+      const exp = expenses.find(e => e.id === expenseId);
+      if (exp) openDetailModal(exp.id);
+    }
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+async function loadMembers() {
+  if (!CONTEXT) {
+    members = DEMO_MEMBERS;
+    memberMap = new Map(members.map(m => [m.id, m]));
+    return;
+  }
+  const res = await fetch(`${CONTEXT}?keys=family.members`);
+  const ctx = await res.json();
+  members   = ctx['family.members'] ?? [];
+  memberMap = new Map(members.map(m => [m.id, m]));
+}
+
+async function loadData() {
+  if (!DB) {
+    expenses    = DEMO_EXPENSES;
+    splits      = DEMO_SPLITS;
+    settlements = DEMO_SETTLEMENTS;
+    return;
+  }
+  const [eRes, sRes, pRes] = await Promise.all([
+    db('SELECT * FROM expenses    ORDER BY date DESC, created_at DESC'),
+    db('SELECT * FROM expense_splits'),
+    db('SELECT * FROM settlements ORDER BY settled_at DESC'),
+  ]);
+  expenses    = eRes.rows;
+  splits      = sRes.rows;
+  settlements = pRes.rows;
+}
+
+function recompute() {
+  balances     = computeBalances(expenses, splits, settlements);
+  transactions = simplifyDebts(balances);
+}
+
+/* ── UI state helpers ────────────────────────────────── */
+function showMain() {
+  document.getElementById('skeleton-state').hidden = true;
+  document.getElementById('main-content').hidden   = false;
+}
+function showError(msg) {
+  document.getElementById('skeleton-state').hidden = true;
+  document.getElementById('error-state').hidden    = false;
+  document.getElementById('error-msg').textContent = msg;
+}
+
+/* ── Tab switching ───────────────────────────────────── */
+window._switchTab = function(tab) {
+  activeTab = tab;
+  document.getElementById('view-balances').hidden = tab !== 'balances';
+  document.getElementById('view-expenses').hidden = tab !== 'expenses';
+  document.getElementById('tab-balances').classList.toggle('active', tab === 'balances');
+  document.getElementById('tab-expenses').classList.toggle('active', tab === 'expenses');
+  if (tab === 'expenses' && !document.getElementById('cat-filter').children.length) {
+    renderCatFilter();
+  }
+};
+
+/* ── Category filter ─────────────────────────────────── */
+function renderCatFilter() {
+  const counts = {};
+  expenses.forEach(e => { counts[e.category] = (counts[e.category] ?? 0) + 1; });
+  const used = CATEGORIES.filter(c => counts[c.id]);
+
+  document.getElementById('cat-filter').innerHTML =
+    `<button class="cat-pill active" onclick="window._filterCat('all')">All</button>` +
+    used.map(c =>
+      `<button class="cat-pill" onclick="window._filterCat('${esc(c.id)}')">${c.icon} ${esc(c.label)}</button>`
+    ).join('');
+}
+
+window._filterCat = function(cat) {
+  activeCategory = cat;
+  document.querySelectorAll('.cat-pill').forEach(b => {
+    b.classList.toggle('active', b.textContent.trim().startsWith(cat === 'all' ? 'All' : categoryFor(cat).icon));
+  });
+  renderExpensesView();
+};
+
+/* ── Search ──────────────────────────────────────────── */
+window._onSearch = function(val) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { searchQuery = val.trim().toLowerCase(); renderExpensesView(); }, 150);
+};
+
+/* ── Render all ──────────────────────────────────────── */
+function renderAll() {
+  renderHeaderSub();
+  renderBalanceBanner();
+  renderBalancesView();
+  renderExpensesView();
+  renderCatFilter();
+}
+
+function renderHeaderSub() {
+  const count = expenses.length;
+  document.getElementById('header-sub').textContent =
+    count === 0 ? 'No expenses yet' : `${count} expense${count === 1 ? '' : 's'}`;
+}
+
+/* ── Balance banner ──────────────────────────────────── */
+function renderBalanceBanner() {
+  const myBal = balances[ME.id] ?? 0;
+  const el = document.getElementById('balance-banner');
+  if (myBal === 0) {
+    el.className = 'balance-banner settled';
+    el.innerHTML = `<span class="balance-settled-msg">✓ You're all settled up</span>`;
+  } else if (myBal > 0) {
+    el.className = 'balance-banner positive';
+    el.innerHTML = `
+      <div><div class="balance-label">You're owed</div></div>
+      <div class="balance-amount">${fmtMoney(myBal)}</div>`;
+  } else {
+    el.className = 'balance-banner negative';
+    el.innerHTML = `
+      <div><div class="balance-label">You owe</div></div>
+      <div class="balance-amount">${fmtMoney(-myBal)}</div>`;
+  }
+}
+
+/* ── Balances view ───────────────────────────────────── */
+function renderBalancesView() {
+  const el = document.getElementById('view-balances');
+  if (transactions.length === 0) {
+    el.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🎉</div>
+        <div class="empty-title">All settled up!</div>
+        <div class="empty-sub">Add an expense to start tracking.</div>
+      </div>`;
+    return;
+  }
+
+  const mine  = transactions.filter(t => t.from_id === ME.id || t.to_id === ME.id);
+  const other = transactions.filter(t => t.from_id !== ME.id && t.to_id !== ME.id);
+
+  let html = '';
+  if (mine.length)  html += `<div class="section-label">Your balances</div>${mine.map(debtCard).join('')}`;
+  if (other.length) html += `<div class="section-label">Others</div>${other.map(debtCard).join('')}`;
+  el.innerHTML = html;
+}
+
+function debtCard(t) {
+  const from = memberMap.get(t.from_id) ?? { id: t.from_id, name: t.from_id, role: 'adult' };
+  const to   = memberMap.get(t.to_id)   ?? { id: t.to_id,   name: t.to_id,   role: 'adult' };
+  const cls  = t.from_id === ME.id ? 'debt-card i-owe'
+             : t.to_id   === ME.id ? 'debt-card they-owe'
+             : 'debt-card';
+  const settleBtn = (t.from_id === ME.id || t.to_id === ME.id)
+    ? `<button class="btn btn-sm btn-settle" onclick="window._openSettle('${esc(t.from_id)}','${esc(t.to_id)}',${t.amount_cents})">Settle</button>`
+    : '';
+  return `
+    <div class="${cls}">
+      <div class="debt-members">
+        ${avatar(from)}
+        <span class="debt-arrow">→</span>
+        ${avatar(to)}
+        <div class="debt-names">
+          <span class="debt-from">${esc(from.name)}</span>
+          <span class="debt-verb">owes</span>
+          <span class="debt-to">${esc(to.name)}</span>
+        </div>
+      </div>
+      <div class="debt-right">
+        <span class="debt-amount">${fmtMoney(t.amount_cents)}</span>
+        ${settleBtn}
+      </div>
+    </div>`;
+}
+
+/* ── Expenses view ───────────────────────────────────── */
+function renderExpensesView() {
+  let list = expenses;
+  if (activeCategory !== 'all') list = list.filter(e => e.category === activeCategory);
+  if (searchQuery)               list = list.filter(e => e.description.toLowerCase().includes(searchQuery));
+
+  const el = document.getElementById('expense-list');
+  if (list.length === 0) {
+    el.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📋</div>
+        <div class="empty-title">No expenses found</div>
+        <div class="empty-sub">${expenses.length === 0 ? 'Tap + Add to record your first expense.' : 'Try a different filter.'}</div>
+      </div>`;
+    return;
+  }
+  el.innerHTML = list.map((exp, i) => expenseCard(exp, i)).join('');
+}
+
+function expenseCard(exp, i) {
+  const paidBy = memberMap.get(exp.paid_by) ?? { id: exp.paid_by, name: exp.paid_by, role: 'adult' };
+  const cat    = categoryFor(exp.category);
+  const delay  = Math.min(i * 25, 120);
+  return `
+    <div class="expense-card" style="animation-delay:${delay}ms"
+         onclick="window._openDetail('${esc(exp.id)}')">
+      <div class="expense-icon">${cat.icon}</div>
+      <div class="expense-main">
+        <div class="expense-desc">${esc(exp.description)}</div>
+        <div class="expense-meta">
+          ${avatar(paidBy, 'sm')}
+          <span>${esc(paidBy.name)}</span>
+          <span>·</span>
+          <span>${fmtDate(exp.date)}</span>
+        </div>
+      </div>
+      <div class="expense-right">
+        <div class="expense-amount">${fmtMoney(exp.amount_cents)}</div>
+        <div class="expense-cat-label">${esc(cat.label)}</div>
+      </div>
+    </div>`;
+}
+
+/* ── Avatar helper ───────────────────────────────────── */
+function avatar(member, size = '') {
+  const color  = memberColor(member.id);
+  const letter = initial(member.name);
+  return `<div class="avatar${size ? ' avatar-' + size : ''}" style="background:${color}">${letter}</div>`;
+}
+
+/* ── Modal infrastructure ────────────────────────────── */
+let modalEl = null;
+
+function openModal(html) {
+  closeModal();
+  modalEl = document.createElement('div');
+  modalEl.className = 'modal-backdrop';
+  modalEl.innerHTML = `<div class="modal-sheet">${html}</div>`;
+  modalEl.addEventListener('click', e => { if (e.target === modalEl) closeModal(); });
+  document.body.appendChild(modalEl);
+  requestAnimationFrame(() => modalEl?.querySelector('input, select, textarea')?.focus());
+  document.addEventListener('keydown', onEsc);
+}
+
+function onEsc(e) { if (e.key === 'Escape') closeModal(); }
+
+function closeModal() {
+  if (!modalEl) return;
+  document.removeEventListener('keydown', onEsc);
+  modalEl.classList.add('closing');
+  const el = modalEl;
+  setTimeout(() => { el.remove(); }, 200);
+  modalEl = null;
+}
+window._closeModal = closeModal;
+
+/* ── Add Expense modal ───────────────────────────────── */
+
+// Mutable form state lives outside the DOM so it survives partial re-renders
+const f = {
+  category:  'other',
+  paidBy:    ME.id,
+  splitAmong: new Set(),
+  splitType: 'equal',
+  custom: {},   // memberId → dollar string
+};
+
+window._openAdd = function() {
+  f.category   = 'other';
+  f.paidBy     = ME.id;
+  f.splitAmong = new Set(members.map(m => m.id));
+  f.splitType  = 'equal';
+  f.custom     = {};
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Add Expense</span>
+      <button class="modal-close" onclick="window._closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="amount-wrap">
+        <span class="amount-symbol">$</span>
+        <input type="number" id="f-amount" class="amount-input" placeholder="0.00"
+               min="0.01" step="0.01" oninput="window._formChange()">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input type="text" id="f-desc" class="text-input" placeholder="What was this for?"
+               maxlength="100" oninput="window._formChange()">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <div class="form-cat-pills" id="f-cat-pills"></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input type="date" id="f-date" class="text-input" value="${today()}">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Paid by</label>
+        <div class="member-pills" id="f-paidby"></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Split among</label>
+        <div class="member-checks" id="f-splitamong"></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Split method</label>
+        <div class="split-toggle">
+          <button class="split-toggle-btn active" id="f-method-equal" onclick="window._setSplitMethod('equal')">= Equal</button>
+          <button class="split-toggle-btn"        id="f-method-custom" onclick="window._setSplitMethod('custom')">≠ Custom</button>
+        </div>
+        <div id="f-split-preview"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="window._closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="f-save-btn" onclick="window._submitExpense()" disabled>Save Expense</button>
+    </div>
+  `);
+
+  renderFormPills();
+  updateFormPreview();
+};
+
+function renderFormPills() {
+  // Category pills
+  document.getElementById('f-cat-pills').innerHTML = CATEGORIES.map(c =>
+    `<button class="form-cat-pill${f.category === c.id ? ' active' : ''}"
+             onclick="window._setCategory('${esc(c.id)}')">${c.icon} ${esc(c.label)}</button>`
+  ).join('');
+
+  // Paid-by member pills
+  document.getElementById('f-paidby').innerHTML = members.map(m =>
+    `<button class="member-pill${f.paidBy === m.id ? ' active' : ''}"
+             onclick="window._setPaidBy('${esc(m.id)}')">${avatar(m, 'sm')} ${esc(m.name)}</button>`
+  ).join('');
+
+  // Split-among checkboxes
+  document.getElementById('f-splitamong').innerHTML = members.map(m =>
+    `<label class="member-check-pill${f.splitAmong.has(m.id) ? ' checked' : ''}">
+       <input type="checkbox" ${f.splitAmong.has(m.id) ? 'checked' : ''}
+              onchange="window._toggleSplit('${esc(m.id)}', this.checked)">
+       ${avatar(m, 'sm')} ${esc(m.name)}
+     </label>`
+  ).join('');
+}
+
+window._setCategory = function(id) {
+  f.category = id;
+  document.querySelectorAll('.form-cat-pill').forEach((b, i) => {
+    b.classList.toggle('active', CATEGORIES[i].id === id);
+  });
+};
+
+window._setPaidBy = function(id) {
+  f.paidBy = id;
+  document.querySelectorAll('.member-pill').forEach(b => {
+    const isActive = b.onclick?.toString().includes(`'${id}'`) || b.getAttribute('onclick')?.includes(`'${id}'`);
+    b.classList.toggle('active', isActive);
+  });
+  // Re-render paid-by pills cleanly
+  if (document.getElementById('f-paidby')) {
+    document.getElementById('f-paidby').innerHTML = members.map(m =>
+      `<button class="member-pill${f.paidBy === m.id ? ' active' : ''}"
+               onclick="window._setPaidBy('${esc(m.id)}')">${avatar(m, 'sm')} ${esc(m.name)}</button>`
+    ).join('');
+  }
+};
+
+window._toggleSplit = function(id, checked) {
+  if (checked) f.splitAmong.add(id); else f.splitAmong.delete(id);
+  const labels = document.querySelectorAll('.member-check-pill');
+  labels.forEach(l => {
+    const cb = l.querySelector('input[type=checkbox]');
+    if (cb && cb.getAttribute('onchange')?.includes(`'${id}'`)) {
+      l.classList.toggle('checked', checked);
+    }
+  });
+  updateFormPreview();
+};
+
+window._setSplitMethod = function(method) {
+  f.splitType = method;
+  document.getElementById('f-method-equal')?.classList.toggle('active', method === 'equal');
+  document.getElementById('f-method-custom')?.classList.toggle('active', method === 'custom');
+  updateFormPreview();
+};
+
+window._formChange = function() { updateFormPreview(); };
+
+window._onCustomInput = function(memberId, val) {
+  f.custom[memberId] = val;
+  updateCustomRemaining();
+  validateForm();
+};
+
+function getAmountCents() {
+  const val = parseFloat(document.getElementById('f-amount')?.value || '0');
+  return isNaN(val) ? 0 : Math.round(val * 100);
+}
+
+function updateFormPreview() {
+  const amountCents  = getAmountCents();
+  const splitMembers = [...f.splitAmong];
+  const previewEl    = document.getElementById('f-split-preview');
+  if (!previewEl) return;
+
+  if (f.splitType === 'equal') {
+    if (amountCents > 0 && splitMembers.length > 0) {
+      const splitResult = computeSplits(amountCents, splitMembers, 'equal');
+      const splitMap    = Object.fromEntries(splitResult.map(s => [s.member_id, s.amount_cents]));
+      previewEl.innerHTML = `
+        <div class="split-preview">
+          ${splitMembers.map(id => {
+            const m = memberMap.get(id) ?? { id, name: id, role: 'adult' };
+            return `<div class="split-preview-row">
+              <div class="split-preview-member">${avatar(m, 'sm')} ${esc(m.name)}</div>
+              <div class="split-preview-amount">${fmtSplit(splitMap[id] ?? 0)}</div>
+            </div>`;
+          }).join('')}
+        </div>`;
+    } else {
+      previewEl.innerHTML = '';
+    }
+  } else {
+    // Custom mode: show inputs
+    previewEl.innerHTML = `
+      <div class="custom-amounts">
+        ${splitMembers.map(id => {
+          const m = memberMap.get(id) ?? { id, name: id, role: 'adult' };
+          return `<div class="custom-row">
+            <div class="custom-row-label">${avatar(m, 'sm')} ${esc(m.name)}</div>
+            <input class="custom-input" type="number" min="0" step="0.01"
+                   placeholder="0.00"
+                   value="${esc(f.custom[id] ?? '')}"
+                   oninput="window._onCustomInput('${esc(id)}', this.value)">
+          </div>`;
+        }).join('')}
+        <div id="f-remaining" class="split-remaining"></div>
+      </div>`;
+    updateCustomRemaining();
+  }
+  validateForm();
+}
+
+function updateCustomRemaining() {
+  const amountCents  = getAmountCents();
+  const splitMembers = [...f.splitAmong];
+  const entered = splitMembers.reduce((s, id) => {
+    const v = parseFloat(f.custom[id] || '0');
+    return s + (isNaN(v) ? 0 : Math.round(v * 100));
+  }, 0);
+  const remaining = amountCents - entered;
+  const el = document.getElementById('f-remaining');
+  if (!el) return;
+  if (remaining === 0) {
+    el.className = 'split-remaining ok';
+    el.textContent = '✓ Balanced';
+  } else if (remaining > 0) {
+    el.className = 'split-remaining bad';
+    el.textContent = `Remaining: ${fmtSplit(remaining)}`;
+  } else {
+    el.className = 'split-remaining bad';
+    el.textContent = `Over by ${fmtSplit(-remaining)}`;
+  }
+}
+
+function validateForm() {
+  const btn = document.getElementById('f-save-btn');
+  if (!btn) return;
+  const amountCents  = getAmountCents();
+  const splitMembers = [...f.splitAmong];
+  let valid = amountCents > 0 && splitMembers.length > 0;
+
+  if (valid && f.splitType === 'custom') {
+    const customCents = Object.fromEntries(
+      splitMembers.map(id => [id, Math.round((parseFloat(f.custom[id] || '0') || 0) * 100)])
+    );
+    valid = validateCustomSplits(amountCents, customCents);
+  }
+  btn.disabled = !valid;
+}
+
+window._submitExpense = async function() {
+  const amountCents  = getAmountCents();
+  const description  = document.getElementById('f-desc')?.value.trim() || 'Expense';
+  const date         = document.getElementById('f-date')?.value || today();
+  const splitMembers = [...f.splitAmong];
+
+  const customCents = f.splitType === 'custom'
+    ? Object.fromEntries(splitMembers.map(id => [id, Math.round((parseFloat(f.custom[id] || '0') || 0) * 100)]))
+    : {};
+
+  const splitResult = computeSplits(amountCents, splitMembers, f.splitType, customCents);
+
+  const btn = document.getElementById('f-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const expId = crypto.randomUUID();
+  const now   = new Date().toISOString();
+
+  const newExp = {
+    id: expId, paid_by: f.paidBy, amount_cents: amountCents,
+    description, category: f.category, date, split_type: f.splitType, created_at: now,
+  };
+  const newSplits = splitResult.map(s => ({
+    id: crypto.randomUUID(), expense_id: expId,
+    member_id: s.member_id, amount_cents: s.amount_cents,
+  }));
+
+  // Optimistic update
+  expenses = [newExp, ...expenses];
+  splits   = [...splits, ...newSplits];
+  recompute();
+  closeModal();
+  renderAll();
+
+  // Persist in background
+  try {
+    await db(
+      'INSERT INTO expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?,?,?,?,?,?,?,?)',
+      [expId, f.paidBy, amountCents, description, f.category, date, f.splitType, now]
+    );
+    for (const s of newSplits) {
+      await db(
+        'INSERT INTO expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?)',
+        [s.id, s.expense_id, s.member_id, s.amount_cents]
+      );
+    }
+    logActivity('expense.created', `${ME.name} added "${description}"`, {
+      deepLink: { appId: APP_ID, params: { expenseId: expId } },
+    });
+  } catch (e) {
+    // Roll back optimistic update
+    expenses = expenses.filter(ex => ex.id !== expId);
+    splits   = splits.filter(s => s.expense_id !== expId);
+    recompute();
+    renderAll();
+    toast(`Failed to save expense: ${e.message}`, 'error');
+  }
+};
+
+/* ── Expense Detail modal ────────────────────────────── */
+window._openDetail = function(expId) { openDetailModal(expId); };
+
+function openDetailModal(expId) {
+  const exp = expenses.find(e => e.id === expId);
+  if (!exp) return;
+
+  const paidBy    = memberMap.get(exp.paid_by) ?? { id: exp.paid_by, name: exp.paid_by, role: 'adult' };
+  const cat       = categoryFor(exp.category);
+  const expSplits = splits.filter(s => s.expense_id === expId);
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">${cat.icon} Expense Details</span>
+      <button class="modal-close" onclick="window._closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="detail-amount">${fmtMoney(exp.amount_cents)}</div>
+      <div class="detail-desc">${esc(exp.description)}</div>
+
+      <div class="detail-row">
+        <span class="detail-key">Paid by</span>
+        <span class="detail-val">${avatar(paidBy, 'sm')} ${esc(paidBy.name)}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-key">Date</span>
+        <span class="detail-val">${esc(fmtDate(exp.date))}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-key">Category</span>
+        <span class="detail-val">${cat.icon} ${esc(cat.label)}</span>
+      </div>
+
+      ${expSplits.length > 0 ? `
+        <div class="section-label" style="margin-top:16px">Split</div>
+        ${expSplits.map(s => {
+          const m = memberMap.get(s.member_id) ?? { id: s.member_id, name: s.member_id, role: 'adult' };
+          return `<div class="detail-row">
+            <span class="detail-val">${avatar(m, 'sm')} ${esc(m.name)}</span>
+            <span class="detail-key">${fmtSplit(s.amount_cents)}</span>
+          </div>`;
+        }).join('')}
+      ` : ''}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="window._deleteExpense('${esc(expId)}')">Delete</button>
+      <button class="btn btn-ghost"  onclick="window._closeModal()">Close</button>
+    </div>
+  `);
+}
+
+window._deleteExpense = async function(expId) {
+  const confirmed = await hubConfirm('Delete this expense? This cannot be undone.');
+  if (!confirmed) return;
+
+  const removedExp    = expenses.find(e => e.id === expId);
+  const removedSplits = splits.filter(s => s.expense_id === expId);
+
+  // Optimistic remove
+  expenses = expenses.filter(e => e.id !== expId);
+  splits   = splits.filter(s => s.expense_id !== expId);
+  recompute();
+  closeModal();
+  renderAll();
+
+  try {
+    await db('DELETE FROM expense_splits WHERE expense_id = ?', [expId]);
+    await db('DELETE FROM expenses WHERE id = ?', [expId]);
+  } catch (e) {
+    // Roll back
+    if (removedExp)    expenses = [removedExp, ...expenses];
+    if (removedSplits) splits   = [...splits, ...removedSplits];
+    recompute();
+    renderAll();
+    toast(`Failed to delete: ${e.message}`, 'error');
+  }
+};
+
+async function hubConfirm(msg) {
+  return new Promise(resolve => {
+    const el = document.createElement('div');
+    el.className = 'modal-backdrop';
+    el.innerHTML = `
+      <div class="modal-sheet" style="max-height:auto">
+        <div class="modal-body" style="text-align:center;padding:24px 20px">
+          <div style="font-size:1rem;font-weight:600;margin-bottom:20px">${esc(msg)}</div>
+          <div style="display:flex;gap:8px;justify-content:center">
+            <button class="btn btn-ghost" id="conf-no">Cancel</button>
+            <button class="btn btn-danger" id="conf-yes">Delete</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    el.querySelector('#conf-no').addEventListener('click',  () => { el.remove(); resolve(false); });
+    el.querySelector('#conf-yes').addEventListener('click', () => { el.remove(); resolve(true); });
+  });
+}
+
+/* ── Settle Up modal ─────────────────────────────────── */
+window._openSettle = function(fromId, toId, suggestedCents) {
+  const from = memberMap.get(fromId) ?? { id: fromId, name: fromId, role: 'adult' };
+  const to   = memberMap.get(toId)   ?? { id: toId,   name: toId,   role: 'adult' };
+  const dollars = (suggestedCents / 100).toFixed(2);
+
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Record Payment</span>
+      <button class="modal-close" onclick="window._closeModal()">×</button>
+    </div>
+    <div class="modal-body" style="text-align:center;padding:24px 20px">
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:20px">
+        ${avatar(from)}
+        <span style="font-size:1.3rem">→</span>
+        ${avatar(to)}
+      </div>
+      <div style="font-size:.9rem;color:var(--muted);margin-bottom:6px">
+        <strong>${esc(from.name)}</strong> pays <strong>${esc(to.name)}</strong>
+      </div>
+      <div class="amount-wrap" style="margin-bottom:0">
+        <span class="amount-symbol">$</span>
+        <input type="number" id="s-amount" class="amount-input" value="${esc(dollars)}"
+               min="0.01" step="0.01">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="window._closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="window._submitSettlement('${esc(fromId)}','${esc(toId)}')">Record Payment</button>
+    </div>
+  `);
+};
+
+window._submitSettlement = async function(fromId, toId) {
+  const val = parseFloat(document.getElementById('s-amount')?.value || '0');
+  if (!val || val <= 0) return;
+  const amountCents = Math.round(val * 100);
+
+  const id  = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const newSettlement = { id, from_id: fromId, to_id: toId, amount_cents: amountCents, note: '', settled_at: now, created_at: now };
+
+  // Optimistic update
+  settlements = [newSettlement, ...settlements];
+  recompute();
+  closeModal();
+  renderAll();
+  toast('Payment recorded', 'success');
+
+  try {
+    await db(
+      'INSERT INTO settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
+      [id, fromId, toId, amountCents, '', now, now]
+    );
+    const fromName = memberMap.get(fromId)?.name ?? fromId;
+    const toName   = memberMap.get(toId)?.name   ?? toId;
+    logActivity('expense.settled', `${fromName} paid ${toName} ${fmtMoney(amountCents)}`, {});
+  } catch (e) {
+    settlements = settlements.filter(s => s.id !== id);
+    recompute();
+    renderAll();
+    toast(`Failed to record payment: ${e.message}`, 'error');
+  }
+};
+
+/* ── Toast ───────────────────────────────────────────── */
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  requestAnimationFrame(() => { requestAnimationFrame(() => el.classList.add('show')); });
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, 3000);
+}
+
+/* ── Widget mode ─────────────────────────────────────── */
+function renderWidget() {
+  document.getElementById('skeleton-state').hidden = true;
+  document.getElementById('widget-root').hidden    = false;
+
+  const myBal = balances[ME.id] ?? 0;
+  const pending = transactions.filter(t => t.from_id === ME.id || t.to_id === ME.id).length;
+  const el = document.getElementById('widget-root');
+  el.onclick = () => window.parent?.postMessage({ type: 'hub:open', appId: APP_ID }, '*');
+
+  if (myBal === 0) {
+    el.innerHTML = `<div class="widget-settled">✓ All settled up</div>`;
+  } else if (myBal > 0) {
+    el.innerHTML = `
+      <div class="widget-label">You're owed</div>
+      <div class="widget-balance" style="color:var(--green)">${fmtMoney(myBal)}</div>
+      ${pending ? `<div class="widget-sub">${pending} pending</div>` : ''}`;
+  } else {
+    el.innerHTML = `
+      <div class="widget-label">You owe</div>
+      <div class="widget-balance" style="color:var(--red)">${fmtMoney(-myBal)}</div>
+      ${pending ? `<div class="widget-sub">${pending} pending</div>` : ''}`;
+  }
+}
+
+/* ── Activity logging ────────────────────────────────── */
+function logActivity(type, description, metadata) {
+  fetch('/api/activity', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, description, metadata }),
+  }).catch(() => {});
+}
+
+/* ── Demo data ───────────────────────────────────────── */
+const DEMO_MEMBERS = [
+  { id: 'demo-me',    name: 'You',   role: 'adult' },
+  { id: 'demo-alice', name: 'Alice', role: 'adult' },
+  { id: 'demo-bob',   name: 'Bob',   role: 'adult' },
+];
+
+const DEMO_EXPENSES = [
+  { id: 'de1', paid_by: 'demo-me',    amount_cents: 9000,  description: 'Groceries',       category: 'food',      date: '2026-06-07', split_type: 'equal', created_at: '2026-06-07T10:00:00Z' },
+  { id: 'de2', paid_by: 'demo-alice', amount_cents: 5400,  description: 'Netflix',         category: 'entertainment', date: '2026-06-05', split_type: 'equal', created_at: '2026-06-05T09:00:00Z' },
+  { id: 'de3', paid_by: 'demo-bob',   amount_cents: 12000, description: 'Electricity bill',category: 'utilities', date: '2026-06-03', split_type: 'equal', created_at: '2026-06-03T08:00:00Z' },
+  { id: 'de4', paid_by: 'demo-me',    amount_cents: 3600,  description: 'Uber to airport', category: 'transport', date: '2026-05-28', split_type: 'equal', created_at: '2026-05-28T07:00:00Z' },
+  { id: 'de5', paid_by: 'demo-alice', amount_cents: 7500,  description: 'Dinner out',      category: 'food',      date: '2026-05-25', split_type: 'equal', created_at: '2026-05-25T20:00:00Z' },
+];
+
+const DEMO_SPLITS = [
+  // de1: $90 split 3 ways = $30 each
+  { id: 'ds1', expense_id: 'de1', member_id: 'demo-me',    amount_cents: 3000 },
+  { id: 'ds2', expense_id: 'de1', member_id: 'demo-alice', amount_cents: 3000 },
+  { id: 'ds3', expense_id: 'de1', member_id: 'demo-bob',   amount_cents: 3000 },
+  // de2: $54 split 3 ways = $18 each
+  { id: 'ds4', expense_id: 'de2', member_id: 'demo-me',    amount_cents: 1800 },
+  { id: 'ds5', expense_id: 'de2', member_id: 'demo-alice', amount_cents: 1800 },
+  { id: 'ds6', expense_id: 'de2', member_id: 'demo-bob',   amount_cents: 1800 },
+  // de3: $120 split 3 ways = $40 each
+  { id: 'ds7', expense_id: 'de3', member_id: 'demo-me',    amount_cents: 4000 },
+  { id: 'ds8', expense_id: 'de3', member_id: 'demo-alice', amount_cents: 4000 },
+  { id: 'ds9', expense_id: 'de3', member_id: 'demo-bob',   amount_cents: 4000 },
+  // de4: $36 split 2 ways (me + alice) = $18 each
+  { id: 'ds10', expense_id: 'de4', member_id: 'demo-me',    amount_cents: 1800 },
+  { id: 'ds11', expense_id: 'de4', member_id: 'demo-alice', amount_cents: 1800 },
+  // de5: $75 split 3 ways = $25 each
+  { id: 'ds12', expense_id: 'de5', member_id: 'demo-me',    amount_cents: 2500 },
+  { id: 'ds13', expense_id: 'de5', member_id: 'demo-alice', amount_cents: 2500 },
+  { id: 'ds14', expense_id: 'de5', member_id: 'demo-bob',   amount_cents: 2500 },
+];
+
+const DEMO_SETTLEMENTS = [];
+
+/* ── Boot ────────────────────────────────────────────── */
+init();
+</script>
+</body>
+</html>
