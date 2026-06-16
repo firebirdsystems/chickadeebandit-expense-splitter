@@ -535,9 +535,9 @@ async function loadData() {
     return;
   }
   const [eRes, sRes, pRes] = await Promise.all([
-    db('SELECT * FROM expenses    ORDER BY date DESC, created_at DESC'),
-    db('SELECT * FROM expense_splits'),
-    db('SELECT * FROM settlements ORDER BY settled_at DESC'),
+    db('SELECT * FROM app_expense_splitter__expenses    ORDER BY date DESC, created_at DESC'),
+    db('SELECT * FROM app_expense_splitter__expense_splits'),
+    db('SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC'),
   ]);
   expenses    = eRes.rows;
   splits      = sRes.rows;
@@ -1031,12 +1031,12 @@ window._submitExpense = async function() {
   // Persist in background
   try {
     await db(
-      'INSERT INTO expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?,?,?,?,?,?,?,?)',
+      'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?,?,?,?,?,?,?,?)',
       [expId, f.paidBy, amountCents, description, f.category, date, f.splitType, now]
     );
     for (const s of newSplits) {
       await db(
-        'INSERT INTO expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?)',
+        'INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?)',
         [s.id, s.expense_id, s.member_id, s.amount_cents]
       );
     }
@@ -1119,8 +1119,8 @@ window._deleteExpense = async function(expId) {
   renderAll();
 
   try {
-    await db('DELETE FROM expense_splits WHERE expense_id = ?', [expId]);
-    await db('DELETE FROM expenses WHERE id = ?', [expId]);
+    await db('DELETE FROM app_expense_splitter__expense_splits WHERE expense_id = ?', [expId]);
+    await db('DELETE FROM app_expense_splitter__expenses WHERE id = ?', [expId]);
   } catch (e) {
     // Roll back
     if (removedExp)    expenses = [removedExp, ...expenses];
@@ -1203,7 +1203,7 @@ window._submitSettlement = async function(fromId, toId) {
 
   try {
     await db(
-      'INSERT INTO settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
+      'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
       [id, fromId, toId, amountCents, '', now, now]
     );
     const fromName = memberMap.get(fromId)?.name ?? fromId;
