@@ -16,6 +16,19 @@
     "requires_approval": false
   },
   "storage": "db",
+  "row_policies": {
+    "expenses": {
+      "kind": "adult_writable"
+    },
+    "expense_splits": {
+      "kind": "adult_writable"
+    },
+    "settlements": {
+      "kind": "party_scoped",
+      "member_columns": ["from_id", "to_id"],
+      "self_column": "from_id"
+    }
+  },
   "publishes": ["expense.created", "expense.settled"],
   "alert_on": ["expense.created", "expense.settled"],
   "nav": { "label": "Expense Splitter" },

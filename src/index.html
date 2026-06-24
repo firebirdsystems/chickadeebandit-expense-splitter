@@ -1034,10 +1034,12 @@ window._submitExpense = async function() {
       'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?,?,?,?,?,?,?,?)',
       [expId, f.paidBy, amountCents, description, f.category, date, f.splitType, now]
     );
-    for (const s of newSplits) {
+    if (newSplits.length > 0) {
+      const placeholders = newSplits.map(() => '(?,?,?,?)').join(',');
+      const params = newSplits.flatMap(s => [s.id, s.expense_id, s.member_id, s.amount_cents]);
       await db(
-        'INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?)',
-        [s.id, s.expense_id, s.member_id, s.amount_cents]
+        `INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES ${placeholders}`,
+        params
       );
     }
     logActivity('expense.created', `${ME.name} added "${description}"`, {
