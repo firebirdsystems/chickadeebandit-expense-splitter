@@ -34,11 +34,20 @@ export function categoryFor(id) {
 export function computeBalances(expenses, splits, settlements) {
   const balance = {};
 
+  // Group splits by expense once (O(splits)) so the per-expense loop is O(1)
+  // lookup instead of re-scanning every split for each expense (was O(n·m)).
+  const splitsByExpense = new Map();
+  for (const s of splits) {
+    let list = splitsByExpense.get(s.expense_id);
+    if (!list) { list = []; splitsByExpense.set(s.expense_id, list); }
+    list.push(s);
+  }
+
   for (const exp of expenses) {
     const paidBy = exp.paid_by;
     if (balance[paidBy] === undefined) balance[paidBy] = 0;
 
-    const expSplits = splits.filter(s => s.expense_id === exp.id);
+    const expSplits = splitsByExpense.get(exp.id) ?? [];
     for (const split of expSplits) {
       const mid = split.member_id;
       if (balance[mid] === undefined) balance[mid] = 0;

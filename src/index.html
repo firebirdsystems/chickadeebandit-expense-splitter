@@ -416,7 +416,7 @@
           <div class="header-title">💸 Expense Splitter</div>
           <div class="header-sub" id="header-sub"></div>
         </div>
-        <button class="btn-add" onclick="window._openAdd()">+ Add</button>
+        <button class="btn-add" id="add-btn" onclick="window._openAdd()">+ Add</button>
       </header>
 
       <div id="balance-banner" class="balance-banner"></div>
@@ -455,10 +455,15 @@ import {
 } from './logic.js';
 
 /* ── Runtime globals ─────────────────────────────────── */
-const CONTEXT = window.__CONTEXT_URL ?? '';
-const DB      = window.__DB_URL      ?? '';
-const ME      = window.__CURRENT_MEMBER ?? { id: 'demo-me', name: 'You', role: 'adult' };
-const APP_ID  = window.__APP_ID ?? 'expense-splitter';
+const CONTEXT    = window.__CONTEXT_URL ?? '';
+const DB         = window.__DB_URL      ?? '';
+const ME         = window.__CURRENT_MEMBER ?? { id: 'demo-me', name: 'You', role: 'adult' };
+const APP_ID     = window.__APP_ID ?? 'expense-splitter';
+const EVENTS_URL = window.__EVENTS_URL ?? '/api/events';
+// Money management mirrors the adult_writable policy on expenses/expense_splits:
+// only adults may add or delete expenses. Non-adults still read balances and may
+// settle their own debts (settlements are party_scoped).
+const IS_ADULT   = ME.role === 'adult';
 
 /* ── App state ───────────────────────────────────────── */
 let members      = [];
@@ -553,6 +558,9 @@ function recompute() {
 function showMain() {
   document.getElementById('skeleton-state').hidden = true;
   document.getElementById('main-content').hidden   = false;
+  // Adults-only writes (adult_writable policy) — hide Add for non-adults so the
+  // UI matches the backend instead of failing silently after an optimistic add.
+  if (!IS_ADULT) document.getElementById('add-btn').hidden = true;
 }
 function showError(msg) {
   document.getElementById('skeleton-state').hidden = true;
@@ -1045,6 +1053,7 @@ window._submitExpense = async function() {
     logActivity('expense.created', `${ME.name} added "${description}"`, {
       deepLink: { appId: APP_ID, params: { expenseId: expId } },
     });
+    publishEvent('expense.created', expId, { description, amount_cents: amountCents });
   } catch (e) {
     // Roll back optimistic update
     expenses = expenses.filter(ex => ex.id !== expId);
@@ -1100,7 +1109,7 @@ function openDetailModal(expId) {
       ` : ''}
     </div>
     <div class="modal-footer">
-      <button class="btn btn-danger" onclick="window._deleteExpense('${esc(expId)}')">Delete</button>
+      ${IS_ADULT ? `<button class="btn btn-danger" onclick="window._deleteExpense('${esc(expId)}')">Delete</button>` : ''}
       <button class="btn btn-ghost"  onclick="window._closeModal()">Close</button>
     </div>
   `);
@@ -1211,6 +1220,7 @@ window._submitSettlement = async function(fromId, toId) {
     const fromName = memberMap.get(fromId)?.name ?? fromId;
     const toName   = memberMap.get(toId)?.name   ?? toId;
     logActivity('expense.settled', `${fromName} paid ${toName} ${fmtMoney(amountCents)}`, {});
+    publishEvent('expense.settled', id, { from_id: fromId, to_id: toId, amount_cents: amountCents });
   } catch (e) {
     settlements = settlements.filter(s => s.id !== id);
     recompute();
@@ -1263,6 +1273,18 @@ function logActivity(type, description, metadata) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type, description, metadata }),
+  }).catch(() => {});
+}
+
+/* ── Cross-app event bus (declared in manifest `publishes`) ───────────────
+   Non-value-bearing notices — no money/points are minted from them — so no
+   publish_acls gating is required. No push (alert_on intentionally omitted). */
+function publishEvent(type, subjectId, payload = {}) {
+  if (!DB) return;
+  fetch(EVENTS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source_app_id: APP_ID, type, subject_id: subjectId, payload }),
   }).catch(() => {});
 }
 

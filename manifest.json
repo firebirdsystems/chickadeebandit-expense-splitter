@@ -1,7 +1,7 @@
 {
   "id": "expense-splitter",
   "name": "Expense Splitter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Track shared expenses among household members — who paid, how to split the cost, and who owes whom. Log expenses by category, settle up with one tap, and see a running balance per person.",
   "entrypoint": "index.html",
   "runtime": "static",
@@ -25,12 +25,10 @@
     },
     "settlements": {
       "kind": "party_scoped",
-      "member_columns": ["from_id", "to_id"],
-      "self_column": "from_id"
+      "member_columns": ["from_id", "to_id"]
     }
   },
   "publishes": ["expense.created", "expense.settled"],
-  "alert_on": ["expense.created", "expense.settled"],
   "nav": { "label": "Expense Splitter" },
   "resource_limits": { "max_db_bytes": 52428800 },
   "icon": "💸",
