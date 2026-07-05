@@ -1,4 +1,3 @@
--- Most recent shared expenses, newest first.
 SELECT
   e.id,
   e.description,

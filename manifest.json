@@ -24,8 +24,7 @@
       "kind": "adult_writable"
     },
     "settlements": {
-      "kind": "party_scoped",
-      "member_columns": ["from_id", "to_id"]
+      "kind": "adult_writable"
     }
   },
   "publishes": ["expense.created", "expense.settled"],

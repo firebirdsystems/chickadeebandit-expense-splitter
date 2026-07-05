@@ -461,9 +461,9 @@ const DB         = window.__DB_URL      ?? '';
 const ME         = window.__CURRENT_MEMBER ?? { id: 'demo-me', name: 'You', role: 'adult' };
 const APP_ID     = window.__APP_ID ?? 'expense-splitter';
 const EVENTS_URL = window.__EVENTS_URL ?? '/api/events';
-// Money management mirrors the adult_writable policy on expenses/expense_splits:
-// only adults may add or delete expenses. Non-adults still read balances and may
-// settle their own debts (settlements are party_scoped).
+// Money management mirrors the adult_writable policy on all three tables:
+// only adults may add or delete expenses and record settlements. Non-adults
+// still read everything (balances stay accurate for every viewer).
 const IS_ADULT   = ME.role === 'adult';
 
 /* ── App state ───────────────────────────────────────── */
@@ -671,7 +671,7 @@ function debtCard(t) {
   const cls  = t.from_id === ME.id ? 'debt-card i-owe'
              : t.to_id   === ME.id ? 'debt-card they-owe'
              : 'debt-card';
-  const settleBtn = (t.from_id === ME.id || t.to_id === ME.id)
+  const settleBtn = (IS_ADULT && (t.from_id === ME.id || t.to_id === ME.id))
     ? `<button class="btn btn-sm btn-settle" onclick="window._openSettle('${esc(t.from_id)}','${esc(t.to_id)}',${t.amount_cents})">Settle</button>`
     : '';
   return `
