@@ -27,6 +27,7 @@
       "kind": "adult_writable"
     }
   },
+  "db_plaintext_columns": ["date"],
   "publishes": ["expense.created", "expense.settled"],
   "nav": { "label": "Expense Splitter" },
   "resource_limits": { "max_db_bytes": 52428800 },
