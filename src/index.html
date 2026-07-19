@@ -177,6 +177,43 @@
     .cat-pill.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
     .cat-pill:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
 
+    /* ── Reimbursement requests ──────────────────────────── */
+    .request-card {
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .request-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .request-title  { font-weight: 600; font-size: .92rem; }
+    .request-sub    { font-size: .8rem; color: var(--muted); margin-top: 2px; }
+    .request-amount { font-weight: 700; font-size: 1.05rem; white-space: nowrap; }
+    .request-foot {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+    }
+    .request-hint    { font-size: .78rem; color: var(--muted); }
+    .request-actions { margin-left: auto; display: flex; gap: 6px; }
+    .badge {
+      font-size: .68rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+      text-transform: uppercase; letter-spacing: .02em;
+    }
+    .badge-pending   { background: #fef3c7; color: #92400e; }
+    .badge-locked    { background: #dcfce7; color: #166534; }
+    .badge-settled   { background: #dbeafe; color: #1e40af; }
+    .badge-cancelled { background: var(--border); color: var(--muted); }
+
+    /* ── Form fields (shared by the request + receipt UI) ── */
+    label.field { display: block; margin-bottom: 12px; font-size: .85rem; }
+    label.field > span { display: block; margin-bottom: 4px; color: var(--muted); font-weight: 600; }
+    label.field input, label.field select {
+      width: 100%; padding: 9px 12px; border: 1.5px solid var(--border);
+      border-radius: 8px; font: inherit; background: var(--card); color: var(--text);
+    }
+    .hint { font-size: .78rem; color: var(--muted); margin: 0; line-height: 1.4; }
+    .receipt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .receipt-thumb {
+      max-width: 100%; max-height: 220px; border-radius: 8px;
+      border: 1.5px solid var(--border); display: block; margin-top: 8px;
+    }
+
     /* ── Empty states ────────────────────────────────────── */
     .empty-state {
       text-align: center; padding: 48px 20px; color: var(--muted);
@@ -417,14 +454,15 @@
           <div class="header-title">💸 Expense Splitter</div>
           <div class="header-sub" id="header-sub"></div>
         </div>
-        <button class="btn-add" id="add-btn" onclick="window._openAdd()">+ Add</button>
+        <button class="btn-add" id="add-btn" data-action="openAdd">+ Add</button>
       </header>
 
       <div id="balance-banner" class="balance-banner"></div>
 
       <div class="tabs" role="tablist">
-        <button class="tab active" id="tab-balances" onclick="window._switchTab('balances')">Balances</button>
-        <button class="tab"        id="tab-expenses" onclick="window._switchTab('expenses')">Expenses</button>
+        <button class="tab active" id="tab-balances" data-action="switchTab" data-tab="balances">Balances</button>
+        <button class="tab"        id="tab-expenses" data-action="switchTab" data-tab="expenses">Expenses</button>
+        <button class="tab"        id="tab-requests" data-action="switchTab" data-tab="requests">Requests</button>
       </div>
 
       <!-- Balances view -->
@@ -435,10 +473,19 @@
         <div class="search-row">
           <input type="search" id="search-input" class="search-input"
                  placeholder="Search expenses…" autocomplete="off"
-                 oninput="window._onSearch(this.value)">
+                 data-input="search">
         </div>
         <div class="cat-filter" id="cat-filter"></div>
         <div id="expense-list"></div>
+      </div>
+
+      <!-- Reimbursement requests view -->
+      <div id="view-requests" hidden role="tabpanel">
+        <div class="search-row" style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-add" id="request-btn" data-action="openRequest">+ Request money back</button>
+          <button class="btn-add" id="rules-btn" data-action="openSplitRules">Split rules</button>
+        </div>
+        <div id="request-list"></div>
       </div>
 
     </div>
@@ -448,11 +495,13 @@
 </div>
 
 <script type="module">
-import { esc, memberColor, initial, fmtMoney } from '/hub-sdk.js';
+import { esc, memberColor, initial, fmtMoney, createFilesHelper } from '/hub-sdk.js';
 import {
   CATEGORIES, categoryFor,
   computeBalances, simplifyDebts, computeSplits, validateCustomSplits,
   fmtSplit, fmtDate, today,
+  computeSplitsWithCategory, reimbursementStatus, validateReimbursement,
+  validateCategoryPercents, TOTAL_BP,
 } from './logic.js';
 
 /* ── Runtime globals ─────────────────────────────────── */
@@ -465,6 +514,66 @@ const EVENTS_URL = window.__EVENTS_URL ?? '/api/events';
 // only adults may add or delete expenses and record settlements. Non-adults
 // still read everything (balances stay accurate for every viewer).
 const IS_ADULT   = ME.role === 'adult';
+const FILES      = createFilesHelper(window.__FILES_URL ?? '');
+const CAN_UPLOAD = !!window.__FILES_URL;
+
+/* ── Event delegation ────────────────────────────────── */
+// Handlers are wired with `data-action` + `data-*` arguments and dispatched
+// here, never with inline `onclick="fn('${value}')"`.
+//
+// Why: esc() escapes ' to &#39;, and the HTML parser decodes that back to a
+// real quote BEFORE the attribute is parsed as JavaScript — so an inline
+// handler carrying a DB value is injectable even though it looks escaped. Any
+// member can choose those values by POSTing raw SQL to /api/db (row ids,
+// member ids, and — since SQLite affinity is not type enforcement — even
+// INTEGER columns like amount_cents). Values read back through `dataset` are
+// never parsed as JavaScript, which closes the whole class.
+//
+// Delegation also means markup re-rendered via innerHTML needs no re-wiring.
+const CLICK_ACTIONS = {
+  openAdd:          () => window._openAdd(),
+  openRequest:      () => window._openRequest(),
+  openSplitRules:   () => window._openSplitRules(),
+  closeModal:       () => window._closeModal(),
+  submitExpense:    () => window._submitExpense(),
+  submitRequest:    () => window._submitRequest(),
+  saveSplitRule:    () => window._saveSplitRule(),
+  switchTab:        el => window._switchTab(el.dataset.tab),
+  filterCat:        el => window._filterCat(el.dataset.cat),
+  setCategory:      el => window._setCategory(el.dataset.cat),
+  setPaidBy:        el => window._setPaidBy(el.dataset.member),
+  setSplitMethod:   el => window._setSplitMethod(el.dataset.method),
+  openDetail:       el => window._openDetail(el.dataset.expense),
+  deleteExpense:    el => window._deleteExpense(el.dataset.expense),
+  agreeRequest:     el => window._agreeRequest(el.dataset.request),
+  cancelRequest:    el => window._cancelRequest(el.dataset.request),
+  settleRequest:    el => window._settleRequest(el.dataset.request),
+  openSettle:       el => window._openSettle(
+                            el.dataset.from, el.dataset.to, Number(el.dataset.amount) || 0),
+  submitSettlement: el => window._submitSettlement(el.dataset.from, el.dataset.to),
+};
+const INPUT_ACTIONS = {
+  search:         el => window._onSearch(el.value),
+  formChange:     () => window._formChange(),
+  splitRuleTotal: () => window._splitRuleTotal(),
+  customInput:    el => window._onCustomInput(el.dataset.member, el.value),
+};
+const CHANGE_ACTIONS = {
+  receiptPicked:   () => window._onReceiptPicked(),
+  renderSplitRule: () => window._renderSplitRule(),
+  toggleSplit:     el => window._toggleSplit(el.dataset.member, el.checked),
+};
+
+function delegate(eventName, table, attr) {
+  document.addEventListener(eventName, e => {
+    const el = e.target.closest(`[${attr}]`);
+    if (!el) return;
+    table[el.getAttribute(attr)]?.(el);
+  });
+}
+delegate('click', CLICK_ACTIONS, 'data-action');
+delegate('input', INPUT_ACTIONS, 'data-input');
+delegate('change', CHANGE_ACTIONS, 'data-change');
 
 /* ── App state ───────────────────────────────────────── */
 let members      = [];
@@ -474,6 +583,8 @@ let splits       = [];
 let settlements  = [];
 let balances     = {};
 let transactions = [];
+let categorySplits = [];   // saved per-category default percentages
+let requests       = [];   // reimbursement requests, merged with their agreements
 
 let activeTab      = 'balances';
 let activeCategory = 'all';
@@ -540,14 +651,37 @@ async function loadData() {
     settlements = DEMO_SETTLEMENTS;
     return;
   }
-  const [eRes, sRes, pRes] = await Promise.all([
+  // reimbursements (party_scoped) and reimbursement_agreements (endpoint_only)
+  // are both governed, so a JOIN across them is rejected — load both and merge
+  // by id, the same shape co-parenting uses for swaps. All six reads are
+  // independent, so they go out together rather than in two waves.
+  const [eRes, sRes, pRes, cRes, rRes, aRes] = await Promise.all([
     db('SELECT * FROM app_expense_splitter__expenses    ORDER BY date DESC, created_at DESC'),
     db('SELECT * FROM app_expense_splitter__expense_splits'),
     db('SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC'),
+    db('SELECT * FROM app_expense_splitter__category_splits').catch(() => ({ rows: [] })),
+    db('SELECT * FROM app_expense_splitter__reimbursements ORDER BY created_at DESC').catch(() => ({ rows: [] })),
+    db('SELECT * FROM app_expense_splitter__reimbursement_agreements').catch(() => ({ rows: [] })),
   ]);
-  expenses    = eRes.rows;
-  splits      = sRes.rows;
-  settlements = pRes.rows;
+  expenses       = eRes.rows;
+  splits         = sRes.rows;
+  settlements    = pRes.rows;
+  categorySplits = cRes.rows;
+
+  const agrById = new Map(aRes.rows.map(a => [a.id, a]));
+  requests = rRes.rows.map(r => {
+    const agr = agrById.get(r.id);
+    return {
+      ...r,
+      status: reimbursementStatus(r, agr),
+      requester_agreed: agr?.requester_agreed ? 1 : 0,
+      payer_agreed:     agr?.payer_agreed ? 1 : 0,
+      locked_at:        agr?.locked_at ?? null,
+      // Once locked, the snapshot is what both parties actually agreed to.
+      amount_cents: agr?.status === 'locked' && agr.amount_cents != null
+        ? agr.amount_cents : r.amount_cents,
+    };
+  });
 }
 
 function recompute() {
@@ -572,13 +706,14 @@ function showError(msg) {
 /* ── Tab switching ───────────────────────────────────── */
 window._switchTab = function(tab) {
   activeTab = tab;
-  document.getElementById('view-balances').hidden = tab !== 'balances';
-  document.getElementById('view-expenses').hidden = tab !== 'expenses';
-  document.getElementById('tab-balances').classList.toggle('active', tab === 'balances');
-  document.getElementById('tab-expenses').classList.toggle('active', tab === 'expenses');
+  for (const t of ['balances', 'expenses', 'requests']) {
+    document.getElementById(`view-${t}`).hidden = tab !== t;
+    document.getElementById(`tab-${t}`).classList.toggle('active', tab === t);
+  }
   if (tab === 'expenses' && !document.getElementById('cat-filter').children.length) {
     renderCatFilter();
   }
+  if (tab === 'requests') renderRequests();
 };
 
 /* ── Category filter ─────────────────────────────────── */
@@ -588,16 +723,17 @@ function renderCatFilter() {
   const used = CATEGORIES.filter(c => counts[c.id]);
 
   document.getElementById('cat-filter').innerHTML =
-    `<button class="cat-pill active" onclick="window._filterCat('all')">All</button>` +
+    `<button class="cat-pill active" data-action="filterCat" data-cat="all">All</button>` +
     used.map(c =>
-      `<button class="cat-pill" onclick="window._filterCat('${esc(c.id)}')">${c.icon} ${esc(c.label)}</button>`
+      `<button class="cat-pill" data-action="filterCat" data-cat="${esc(c.id)}">${c.icon} ${esc(c.label)}</button>`
     ).join('');
 }
 
 window._filterCat = function(cat) {
   activeCategory = cat;
+  // Match on the pill's own data-cat rather than sniffing its label text.
   document.querySelectorAll('.cat-pill').forEach(b => {
-    b.classList.toggle('active', b.textContent.trim().startsWith(cat === 'all' ? 'All' : categoryFor(cat).icon));
+    b.classList.toggle('active', b.dataset.cat === cat);
   });
   renderExpensesView();
 };
@@ -615,6 +751,83 @@ function renderAll() {
   renderBalancesView();
   renderExpensesView();
   renderCatFilter();
+  renderRequests();
+}
+
+/* ── Reimbursement requests ──────────────────────────── */
+// The one-tap "settle up" on the Balances tab records a payment unilaterally,
+// which is fine between housemates. A reimbursement request is the two-party
+// version for shared spaces: it isn't binding until BOTH sides countersign
+// through /api/agree, and the agreed amount is snapshotted at lock.
+function renderRequests() {
+  const el = document.getElementById('request-list');
+  if (!el) return;
+  document.getElementById('request-btn').hidden = !IS_ADULT;
+  document.getElementById('rules-btn').hidden   = !IS_ADULT;
+
+  if (!requests.length) {
+    el.innerHTML = `<div class="empty-state">
+      <div class="empty-icon">🤝</div>
+      <p>No reimbursement requests.</p>
+      <p class="empty-sub">Ask someone to pay you back for a shared cost — you both confirm the amount before it counts.</p>
+    </div>`;
+    return;
+  }
+  el.innerHTML = requests.map(requestCard).join('');
+}
+
+function requestCard(r) {
+  const other = r.requester_id === ME.id ? r.payer_id : r.requester_id;
+  const mine  = r.requester_id === ME.id;
+  const iAgreed = mine ? r.requester_agreed : r.payer_agreed;
+  const theyAgreed = mine ? r.payer_agreed : r.requester_agreed;
+
+  const badge = {
+    pending:   ['badge-pending',   'Awaiting confirmation'],
+    locked:    ['badge-locked',    'Confirmed'],
+    settled:   ['badge-settled',   'Settled'],
+    cancelled: ['badge-cancelled', 'Cancelled'],
+  }[r.status] ?? ['badge-pending', r.status];
+
+  const actions = [];
+  if (r.status === 'pending' && IS_ADULT) {
+    if (!iAgreed) actions.push(`<button class="btn-sm btn-primary" data-action="agreeRequest" data-request="${esc(r.id)}">Confirm</button>`);
+    if (mine)     actions.push(`<button class="btn-sm" data-action="cancelRequest" data-request="${esc(r.id)}">Cancel</button>`);
+  }
+  if (r.status === 'locked' && IS_ADULT) {
+    actions.push(`<button class="btn-sm btn-primary" data-action="settleRequest" data-request="${esc(r.id)}">Record payment</button>`);
+  }
+
+  return `
+    <div class="request-card">
+      <div class="request-head">
+        <div>
+          <div class="request-title">${mine ? 'You asked' : 'Asked of you by'} ${esc(memberName(other))}</div>
+          <div class="request-sub">${esc(r.note || 'Shared cost')} · ${esc(fmtDate(r.created_at?.slice(0, 10)))}</div>
+        </div>
+        <div class="request-amount">${fmtMoney(r.amount_cents)}</div>
+      </div>
+      <div class="request-foot">
+        <span class="badge ${badge[0]}">${esc(badge[1])}</span>
+        ${r.status === 'pending'
+          ? `<span class="request-hint">${iAgreed ? 'Waiting on them' : theyAgreed ? 'They confirmed — your turn' : 'Neither side has confirmed'}</span>`
+          : ''}
+        <span class="request-actions">${actions.join('')}</span>
+      </div>
+    </div>`;
+}
+
+function memberName(id) { return memberMap.get(id)?.name ?? 'Someone'; }
+
+async function agreeOnServer(id, agreed) {
+  const res = await fetch(`/run/${APP_ID}/api/agree`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table: 'reimbursement_agreements', id, agreed }),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json().catch(() => ({}))).error || 'Could not record your confirmation');
+  }
 }
 
 function renderHeaderSub() {
@@ -672,7 +885,8 @@ function debtCard(t) {
              : t.to_id   === ME.id ? 'debt-card they-owe'
              : 'debt-card';
   const settleBtn = (IS_ADULT && (t.from_id === ME.id || t.to_id === ME.id))
-    ? `<button class="btn btn-sm btn-settle" onclick="window._openSettle('${esc(t.from_id)}','${esc(t.to_id)}',${t.amount_cents})">Settle</button>`
+    ? `<button class="btn btn-sm btn-settle" data-action="openSettle"
+             data-from="${esc(t.from_id)}" data-to="${esc(t.to_id)}" data-amount="${esc(t.amount_cents)}">Settle</button>`
     : '';
   return `
     <div class="${cls}">
@@ -718,7 +932,7 @@ function expenseCard(exp, i) {
   const delay  = Math.min(i * 25, 120);
   return `
     <div class="expense-card" style="animation-delay:${delay}ms"
-         onclick="window._openDetail('${esc(exp.id)}')">
+         data-action="openDetail" data-expense="${esc(exp.id)}">
       <div class="expense-icon">${cat.icon}</div>
       <div class="expense-main">
         <div class="expense-desc">${esc(exp.description)}</div>
@@ -778,6 +992,7 @@ const f = {
   splitAmong: new Set(),
   splitType: 'equal',
   custom: {},   // memberId → dollar string
+  receiptFileId: null,
 };
 
 window._openAdd = function() {
@@ -786,23 +1001,24 @@ window._openAdd = function() {
   f.splitAmong = new Set(members.map(m => m.id));
   f.splitType  = 'equal';
   f.custom     = {};
+  f.receiptFileId = null;
 
   openModal(`
     <div class="modal-header">
       <span class="modal-title">Add Expense</span>
-      <button class="modal-close" onclick="window._closeModal()">×</button>
+      <button class="modal-close" data-action="closeModal">×</button>
     </div>
     <div class="modal-body">
       <div class="amount-wrap">
         <span class="amount-symbol">$</span>
         <input type="number" id="f-amount" class="amount-input" placeholder="0.00"
-               min="0.01" step="0.01" oninput="window._formChange()">
+               min="0.01" step="0.01" data-input="formChange">
       </div>
 
       <div class="form-group">
         <label class="form-label">Description</label>
         <input type="text" id="f-desc" class="text-input" placeholder="What was this for?"
-               maxlength="100" oninput="window._formChange()">
+               maxlength="100" data-input="formChange">
       </div>
 
       <div class="form-group">
@@ -828,15 +1044,26 @@ window._openAdd = function() {
       <div class="form-group">
         <label class="form-label">Split method</label>
         <div class="split-toggle">
-          <button class="split-toggle-btn active" id="f-method-equal" onclick="window._setSplitMethod('equal')">= Equal</button>
-          <button class="split-toggle-btn"        id="f-method-custom" onclick="window._setSplitMethod('custom')">≠ Custom</button>
+          <button class="split-toggle-btn active" id="f-method-equal" data-action="setSplitMethod" data-method="equal">= Equal</button>
+          <button class="split-toggle-btn"        id="f-method-custom" data-action="setSplitMethod" data-method="custom">≠ Custom</button>
         </div>
         <div id="f-split-preview"></div>
       </div>
+
+      ${CAN_UPLOAD ? `
+      <div class="form-group">
+        <label class="form-label">Receipt <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <div class="receipt-row">
+          <input type="file" id="f-receipt"
+                 accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
+                 data-change="receiptPicked">
+          <span id="f-receipt-status" class="hint"></span>
+        </div>
+      </div>` : ''}
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="window._closeModal()">Cancel</button>
-      <button class="btn btn-primary" id="f-save-btn" onclick="window._submitExpense()" disabled>Save Expense</button>
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" id="f-save-btn" data-action="submitExpense" disabled>Save Expense</button>
     </div>
   `);
 
@@ -848,20 +1075,20 @@ function renderFormPills() {
   // Category pills
   document.getElementById('f-cat-pills').innerHTML = CATEGORIES.map(c =>
     `<button class="form-cat-pill${f.category === c.id ? ' active' : ''}"
-             onclick="window._setCategory('${esc(c.id)}')">${c.icon} ${esc(c.label)}</button>`
+             data-action="setCategory" data-cat="${esc(c.id)}">${c.icon} ${esc(c.label)}</button>`
   ).join('');
 
   // Paid-by member pills
   document.getElementById('f-paidby').innerHTML = members.map(m =>
     `<button class="member-pill${f.paidBy === m.id ? ' active' : ''}"
-             onclick="window._setPaidBy('${esc(m.id)}')">${avatar(m, 'sm')} ${esc(m.name)}</button>`
+             data-action="setPaidBy" data-member="${esc(m.id)}">${avatar(m, 'sm')} ${esc(m.name)}</button>`
   ).join('');
 
   // Split-among checkboxes
   document.getElementById('f-splitamong').innerHTML = members.map(m =>
     `<label class="member-check-pill${f.splitAmong.has(m.id) ? ' checked' : ''}">
        <input type="checkbox" ${f.splitAmong.has(m.id) ? 'checked' : ''}
-              onchange="window._toggleSplit('${esc(m.id)}', this.checked)">
+              data-change="toggleSplit" data-member="${esc(m.id)}">
        ${avatar(m, 'sm')} ${esc(m.name)}
      </label>`
   ).join('');
@@ -872,32 +1099,44 @@ window._setCategory = function(id) {
   document.querySelectorAll('.form-cat-pill').forEach((b, i) => {
     b.classList.toggle('active', CATEGORIES[i].id === id);
   });
+  updateFormPreview();   // the category can carry a saved split rule
+};
+
+// Receipts upload immediately so the DB row is never written pointing at a file
+// that failed to store. f.receiptFileId is cleared and re-set on every pick.
+window._onReceiptPicked = async function() {
+  const input  = document.getElementById('f-receipt');
+  const status = document.getElementById('f-receipt-status');
+  const file   = input?.files?.[0];
+  f.receiptFileId = null;
+  if (!file) { if (status) status.textContent = ''; return; }
+
+  if (status) status.textContent = 'Uploading…';
+  try {
+    const { id } = await FILES.upload(file);
+    f.receiptFileId = id;
+    if (status) status.textContent = '✓ Attached';
+  } catch (e) {
+    if (input) input.value = '';
+    if (status) status.textContent = '';
+    toast(`Could not attach receipt: ${e.message}`, 'error');
+  }
 };
 
 window._setPaidBy = function(id) {
   f.paidBy = id;
+  // Previously this read each button's onclick SOURCE to find a match. With
+  // delegation there is no source to read — and data-member is what the
+  // handler already dispatches on, so it is the honest thing to compare.
   document.querySelectorAll('.member-pill').forEach(b => {
-    const isActive = b.onclick?.toString().includes(`'${id}'`) || b.getAttribute('onclick')?.includes(`'${id}'`);
-    b.classList.toggle('active', isActive);
+    b.classList.toggle('active', b.dataset.member === id);
   });
-  // Re-render paid-by pills cleanly
-  if (document.getElementById('f-paidby')) {
-    document.getElementById('f-paidby').innerHTML = members.map(m =>
-      `<button class="member-pill${f.paidBy === m.id ? ' active' : ''}"
-               onclick="window._setPaidBy('${esc(m.id)}')">${avatar(m, 'sm')} ${esc(m.name)}</button>`
-    ).join('');
-  }
 };
 
 window._toggleSplit = function(id, checked) {
   if (checked) f.splitAmong.add(id); else f.splitAmong.delete(id);
-  const labels = document.querySelectorAll('.member-check-pill');
-  labels.forEach(l => {
-    const cb = l.querySelector('input[type=checkbox]');
-    if (cb && cb.getAttribute('onchange')?.includes(`'${id}'`)) {
-      l.classList.toggle('checked', checked);
-    }
-  });
+  const cb = document.querySelector(`.member-check-pill input[data-member="${CSS.escape(id)}"]`);
+  cb?.closest('.member-check-pill')?.classList.toggle('checked', checked);
   updateFormPreview();
 };
 
@@ -929,9 +1168,15 @@ function updateFormPreview() {
 
   if (f.splitType === 'equal') {
     if (amountCents > 0 && splitMembers.length > 0) {
-      const splitResult = computeSplits(amountCents, splitMembers, 'equal');
+      const { splits: splitResult, source } =
+        computeSplitsWithCategory(amountCents, splitMembers, 'equal', {}, categorySplits, f.category);
       const splitMap    = Object.fromEntries(splitResult.map(s => [s.member_id, s.amount_cents]));
-      previewEl.innerHTML = `
+      // Say which rule produced these numbers — an unexplained 70/30 in a
+      // column labelled "Equal" is the kind of thing people argue about.
+      const ruleNote = source === 'category'
+        ? `<div class="hint" style="margin-bottom:6px">Using the saved split for ${esc(categoryFor(f.category).label)}.</div>`
+        : '';
+      previewEl.innerHTML = ruleNote + `
         <div class="split-preview">
           ${splitMembers.map(id => {
             const m = memberMap.get(id) ?? { id, name: id, role: 'adult' };
@@ -955,7 +1200,7 @@ function updateFormPreview() {
             <input class="custom-input" type="number" min="0" step="0.01"
                    placeholder="0.00"
                    value="${esc(f.custom[id] ?? '')}"
-                   oninput="window._onCustomInput('${esc(id)}', this.value)">
+                   data-input="customInput" data-member="${esc(id)}">
           </div>`;
         }).join('')}
         <div id="f-remaining" class="split-remaining"></div>
@@ -1013,7 +1258,8 @@ window._submitExpense = async function() {
     ? Object.fromEntries(splitMembers.map(id => [id, Math.round((parseFloat(f.custom[id] || '0') || 0) * 100)]))
     : {};
 
-  const splitResult = computeSplits(amountCents, splitMembers, f.splitType, customCents);
+  const { splits: splitResult } = computeSplitsWithCategory(
+    amountCents, splitMembers, f.splitType, customCents, categorySplits, f.category);
 
   const btn = document.getElementById('f-save-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -1021,9 +1267,11 @@ window._submitExpense = async function() {
   const expId = crypto.randomUUID();
   const now   = new Date().toISOString();
 
+  const receiptFileId = f.receiptFileId ?? null;
   const newExp = {
     id: expId, paid_by: f.paidBy, amount_cents: amountCents,
     description, category: f.category, date, split_type: f.splitType, created_at: now,
+    receipt_file_id: receiptFileId,
   };
   const newSplits = splitResult.map(s => ({
     id: crypto.randomUUID(), expense_id: expId,
@@ -1040,8 +1288,8 @@ window._submitExpense = async function() {
   // Persist in background
   try {
     await db(
-      'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?,?,?,?,?,?,?,?)',
-      [expId, f.paidBy, amountCents, description, f.category, date, f.splitType, now]
+      'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id) VALUES (?,?,?,?,?,?,?,?,?)',
+      [expId, f.paidBy, amountCents, description, f.category, date, f.splitType, now, receiptFileId]
     );
     if (newSplits.length > 0) {
       const placeholders = newSplits.map(() => '(?,?,?,?)').join(',');
@@ -1059,6 +1307,9 @@ window._submitExpense = async function() {
     // Roll back optimistic update
     expenses = expenses.filter(ex => ex.id !== expId);
     splits   = splits.filter(s => s.expense_id !== expId);
+    // The receipt uploaded fine but has no row pointing at it now — drop it
+    // rather than leaving an orphan counting against the storage quota.
+    if (receiptFileId) FILES.delete(receiptFileId).catch(() => {});
     recompute();
     renderAll();
     toast(`Failed to save expense: ${e.message}`, 'error');
@@ -1079,7 +1330,7 @@ function openDetailModal(expId) {
   openModal(`
     <div class="modal-header">
       <span class="modal-title">${cat.icon} Expense Details</span>
-      <button class="modal-close" onclick="window._closeModal()">×</button>
+      <button class="modal-close" data-action="closeModal">×</button>
     </div>
     <div class="modal-body">
       <div class="detail-amount">${fmtMoney(exp.amount_cents)}</div>
@@ -1098,6 +1349,15 @@ function openDetailModal(expId) {
         <span class="detail-val">${cat.icon} ${esc(cat.label)}</span>
       </div>
 
+      ${exp.receipt_file_id ? `
+        <div class="section-label" style="margin-top:16px">Receipt</div>
+        <a href="${esc(FILES.url(exp.receipt_file_id))}" target="_blank" rel="noopener">
+          <img class="receipt-thumb" src="${esc(FILES.url(exp.receipt_file_id))}"
+               alt="Receipt for ${esc(exp.description)}"
+               onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'hint',textContent:'Open receipt ↗'}))">
+        </a>
+      ` : ''}
+
       ${expSplits.length > 0 ? `
         <div class="section-label" style="margin-top:16px">Split</div>
         ${expSplits.map(s => {
@@ -1110,8 +1370,8 @@ function openDetailModal(expId) {
       ` : ''}
     </div>
     <div class="modal-footer">
-      ${IS_ADULT ? `<button class="btn btn-danger" onclick="window._deleteExpense('${esc(expId)}')">Delete</button>` : ''}
-      <button class="btn btn-ghost"  onclick="window._closeModal()">Close</button>
+      ${IS_ADULT ? `<button class="btn btn-danger" data-action="deleteExpense" data-expense="${esc(expId)}">Delete</button>` : ''}
+      <button class="btn btn-ghost"  data-action="closeModal">Close</button>
     </div>
   `);
 }
@@ -1133,6 +1393,9 @@ window._deleteExpense = async function(expId) {
   try {
     await db('DELETE FROM app_expense_splitter__expense_splits WHERE expense_id = ?', [expId]);
     await db('DELETE FROM app_expense_splitter__expenses WHERE id = ?', [expId]);
+    // Only after the row is gone — a failed delete must not strand the row
+    // pointing at a file that no longer exists.
+    if (removedExp?.receipt_file_id) FILES.delete(removedExp.receipt_file_id).catch(() => {});
   } catch (e) {
     // Roll back
     if (removedExp)    expenses = [removedExp, ...expenses];
@@ -1172,7 +1435,7 @@ window._openSettle = function(fromId, toId, suggestedCents) {
   openModal(`
     <div class="modal-header">
       <span class="modal-title">Record Payment</span>
-      <button class="modal-close" onclick="window._closeModal()">×</button>
+      <button class="modal-close" data-action="closeModal">×</button>
     </div>
     <div class="modal-body" style="text-align:center;padding:24px 20px">
       <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:20px">
@@ -1190,8 +1453,8 @@ window._openSettle = function(fromId, toId, suggestedCents) {
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="window._closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="window._submitSettlement('${esc(fromId)}','${esc(toId)}')">Record Payment</button>
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" data-action="submitSettlement" data-from="${esc(fromId)}" data-to="${esc(toId)}">Record Payment</button>
     </div>
   `);
 };
@@ -1227,6 +1490,241 @@ window._submitSettlement = async function(fromId, toId) {
     recompute();
     renderAll();
     toast(`Failed to record payment: ${e.message}`, 'error');
+  }
+};
+
+/* ── Per-category split rules ────────────────────────── */
+// Default is an even split. A saved rule says "medical is always 60/40" so the
+// number doesn't have to be re-argued every time. Rules apply only to the
+// members they name — see splitPercentsForCategory, which deliberately falls
+// back to an even split rather than reallocating a stale rule.
+
+window._openSplitRules = function() {
+  openModal(`
+    <div class="modal-header">
+      <h2 class="modal-title">Split rules</h2>
+      <button class="modal-close" data-action="closeModal">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span>Category</span>
+        <select id="sr-cat" data-change="renderSplitRule">
+          ${CATEGORIES.map(c => `<option value="${esc(c.id)}">${c.icon} ${esc(c.label)}</option>`).join('')}
+        </select>
+      </label>
+      <div id="sr-rows"></div>
+      <div id="sr-total" class="hint"></div>
+      <p class="hint" style="margin-top:10px">Leave a category at an even split to
+        use the default. Percentages must add up to 100%.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" id="sr-save" data-action="saveSplitRule">Save rule</button>
+    </div>
+  `);
+  window._renderSplitRule();
+};
+
+window._renderSplitRule = function() {
+  const cat = document.getElementById('sr-cat')?.value;
+  const adultsHere = members.filter(m => m.role === 'adult');
+  const saved = new Map(
+    categorySplits.filter(r => r.category === cat).map(r => [r.member_id, Number(r.percent_bp) || 0]));
+  // The even-split default has to total exactly 100% or the Save button starts
+  // disabled — 3 people at 33.33% is 99.99%. Give the remainder to the first.
+  const n = adultsHere.length;
+  const evenBp = n ? Math.floor(TOTAL_BP / n) : 0;
+  const evenFirst = n ? evenBp + (TOTAL_BP - evenBp * n) : 0;
+
+  document.getElementById('sr-rows').innerHTML = adultsHere.map((m, i) => `
+    <label class="field"><span>${esc(m.name)}</span>
+      <input type="number" min="0" max="100" step="0.01" data-member="${esc(m.id)}"
+             value="${((saved.get(m.id) ?? (i === 0 ? evenFirst : evenBp)) / 100).toFixed(2)}"
+             data-input="splitRuleTotal">
+    </label>`).join('');
+  window._splitRuleTotal();
+};
+
+/** Percent inputs → basis points, so the saved value is an exact integer. */
+function readSplitRuleInputs() {
+  return [...document.querySelectorAll('#sr-rows input[data-member]')].map(el => ({
+    member_id: el.dataset.member,
+    percent_bp: Math.round((parseFloat(el.value) || 0) * 100),
+  }));
+}
+
+window._splitRuleTotal = function() {
+  const rows  = readSplitRuleInputs();
+  const total = rows.reduce((s, r) => s + r.percent_bp, 0);
+  const ok    = validateCategoryPercents(rows);
+  const el    = document.getElementById('sr-total');
+  if (el) {
+    el.textContent = ok ? '✓ Adds up to 100%' : `Currently ${(total / 100).toFixed(2)}% — must be 100%`;
+    el.style.color = ok ? 'var(--green, #166534)' : 'var(--red, #b91c1c)';
+  }
+  const btn = document.getElementById('sr-save');
+  if (btn) btn.disabled = !ok;
+};
+
+window._saveSplitRule = async function() {
+  const cat  = document.getElementById('sr-cat')?.value;
+  const rows = readSplitRuleInputs();
+  if (!validateCategoryPercents(rows)) return;
+
+  const btn = document.getElementById('sr-save');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const now = new Date().toISOString();
+  try {
+    // Replace the whole rule for this category — a partial update could leave
+    // orphan rows that no longer sum to 100% and silently disable the rule.
+    await db('DELETE FROM app_expense_splitter__category_splits WHERE category = ?', [cat]);
+    if (rows.length) {
+      const placeholders = rows.map(() => '(?,?,?,?,?)').join(',');
+      const params = rows.flatMap(r => [crypto.randomUUID(), cat, r.member_id, r.percent_bp, now]);
+      await db(
+        `INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES ${placeholders}`,
+        params
+      );
+    }
+    await loadData();
+    closeModal();
+    toast(`Split rule saved for ${categoryFor(cat).label}`, 'success');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Save rule';
+    toast(`Could not save rule: ${e.message}`, 'error');
+  }
+};
+
+/* ── Reimbursement request actions ───────────────────── */
+
+window._openRequest = function() {
+  const others = members.filter(m => m.id !== ME.id && m.role === 'adult');
+  if (!others.length) {
+    toast('There is nobody else here to request money from', 'error');
+    return;
+  }
+  openModal(`
+    <div class="modal-header">
+      <h2 class="modal-title">Request money back</h2>
+      <button class="modal-close" data-action="closeModal">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span>Who owes you</span>
+        <select id="r-payer">
+          ${others.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}
+        </select>
+      </label>
+      <label class="field"><span>Amount</span>
+        <div class="amount-wrap">
+          <span class="amount-symbol">$</span>
+          <input type="number" id="r-amount" class="amount-input" min="0.01" step="0.01" data-autofocus>
+        </div>
+      </label>
+      <label class="field"><span>What for</span>
+        <input type="text" id="r-note" maxlength="200" placeholder="e.g. Half of the dentist bill">
+      </label>
+      <p class="hint">They'll be asked to confirm. Nothing is recorded against the
+        balance until you both agree on the amount.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" id="r-submit" data-action="submitRequest">Send request</button>
+    </div>
+  `);
+  // The autofocus attribute is blocked in the cross-origin app iframe.
+  requestAnimationFrame(() => modalEl?.querySelector('[data-autofocus]')?.focus());
+};
+
+window._submitRequest = async function() {
+  const btn = document.getElementById('r-submit');
+  const payerId = document.getElementById('r-payer')?.value;
+  const note    = (document.getElementById('r-note')?.value ?? '').trim();
+  const dollars = parseFloat(document.getElementById('r-amount')?.value || '0');
+  const amountCents = Math.round(dollars * 100);
+
+  const check = validateReimbursement({ requester_id: ME.id, payer_id: payerId, amount_cents: amountCents });
+  if (!check.ok) { toast(check.error, 'error'); return; }
+
+  btn.disabled = true; btn.textContent = 'Sending…';
+  const id  = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  try {
+    await db(
+      'INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+      [id, ME.id, payerId, amountCents, note, 'pending', now, now]
+    );
+    // Bootstraps the agreement row (init_from_table) and records my own consent.
+    await agreeOnServer(id, true);
+    await loadData();
+    recompute();
+    closeModal();
+    renderAll();
+    toast('Request sent', 'success');
+    publishEvent('expense.reimbursement_requested', id, { payer_id: payerId, amount_cents: amountCents });
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Send request';
+    toast(`Could not send request: ${e.message}`, 'error');
+  }
+};
+
+window._agreeRequest = async function(id) {
+  try {
+    await agreeOnServer(id, true);
+    await loadData();
+    recompute();
+    renderAll();
+    toast('Confirmed', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+window._cancelRequest = async function(id) {
+  if (!await hubConfirm('Cancel this request?')) return;
+  try {
+    await db(
+      'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ?',
+      ['cancelled', new Date().toISOString(), id]
+    );
+    await loadData();
+    recompute();
+    renderAll();
+    toast('Request cancelled', 'success');
+  } catch (e) {
+    toast(`Could not cancel: ${e.message}`, 'error');
+  }
+};
+
+// A confirmed request becomes a real settlement — the same row the balance math
+// already understands — and the request is closed so it can't be settled twice.
+window._settleRequest = async function(id) {
+  const r = requests.find(x => x.id === id);
+  if (!r || r.status !== 'locked') return;
+  if (!await hubConfirm(`Record ${fmtMoney(r.amount_cents)} as paid?`)) return;
+
+  const sid = crypto.randomUUID();
+  const now = new Date().toISOString();
+  try {
+    await db(
+      'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
+      [sid, r.payer_id, r.requester_id, r.amount_cents, r.note ?? '', now, now]
+    );
+    // Ordered second on purpose: if this fails the request stays 'locked' and
+    // shows the button again, which is visible and fixable. The reverse order
+    // could close the request with no settlement behind it.
+    await db(
+      'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ?',
+      ['settled', now, id]
+    );
+    await loadData();
+    recompute();
+    renderAll();
+    toast('Payment recorded', 'success');
+    publishEvent('expense.settled', sid, {
+      from_id: r.payer_id, to_id: r.requester_id, amount_cents: r.amount_cents,
+    });
+  } catch (e) {
+    toast(`Could not record payment: ${e.message}`, 'error');
   }
 };
 

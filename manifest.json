@@ -1,40 +1,117 @@
 {
   "id": "expense-splitter",
   "name": "Expense Splitter",
-  "version": "1.1.0",
-  "description": "Track shared expenses among household members — who paid, how to split the cost, and who owes whom. Log expenses by category, settle up with one tap, and see a running balance per person.",
+  "version": "1.2.0",
+  "description": "Track shared expenses among household members — who paid, how to split the cost, and who owes whom. Log expenses by category with a receipt, settle up with one tap, and see a running balance per person. In a shared space, either party can request a reimbursement that both sides countersign.",
   "entrypoint": "index.html",
   "runtime": "static",
   "category": "family",
-  "tags": ["expenses", "sharing", "finance", "settlements", "splitwise"],
+  "tags": [
+    "expenses",
+    "sharing",
+    "finance",
+    "settlements",
+    "splitwise"
+  ],
   "data_access": {
-    "reads": ["family.members"],
+    "reads": [
+      "family.members"
+    ],
     "writes": []
   },
   "permissions": {
     "default_audience": "everyone",
     "requires_approval": false
   },
+  "contexts": [
+    "household",
+    "shared_space"
+  ],
   "storage": "db",
   "row_policies": {
     "expenses": {
-      "kind": "adult_writable"
+      "kind": "adult_writable",
+      "audit_writes": true
     },
     "expense_splits": {
-      "kind": "adult_writable"
+      "kind": "adult_writable",
+      "audit_writes": true
     },
     "settlements": {
+      "kind": "adult_writable",
+      "audit_writes": true
+    },
+    "category_splits": {
       "kind": "adult_writable"
+    },
+    "reimbursements": {
+      "kind": "party_scoped",
+      "member_columns": [
+        "requester_id",
+        "payer_id"
+      ],
+      "self_column": "requester_id",
+      "audit_writes": true,
+      "frozen_when": {
+        "status_column": "status",
+        "locked_values": [
+          "settled",
+          "cancelled"
+        ]
+      }
+    },
+    "reimbursement_agreements": {
+      "kind": "endpoint_only",
+      "read": "adult"
     }
   },
-  "db_plaintext_columns": ["date"],
-  "publishes": ["expense.created", "expense.settled"],
-  "nav": { "label": "Expense Splitter" },
-  "resource_limits": { "max_db_bytes": 52428800 },
+  "agreements": {
+    "reimbursement_agreements": {
+      "participant_columns": [
+        "requester_id",
+        "payer_id"
+      ],
+      "agreement_columns": {
+        "requester_id": "requester_agreed",
+        "payer_id": "payer_agreed"
+      },
+      "status_column": "status",
+      "pending_value": "pending",
+      "locked_value": "locked",
+      "locked_at_column": "locked_at",
+      "updated_at_column": "updated_at",
+      "init_from_table": "reimbursements",
+      "init_columns": [
+        "requester_id",
+        "payer_id"
+      ],
+      "snapshot_columns": [
+        "amount_cents",
+        "note"
+      ]
+    }
+  },
+  "db_plaintext_columns": [
+    "date"
+  ],
+  "publishes": [
+    "expense.created",
+    "expense.settled",
+    "expense.reimbursement_requested"
+  ],
+  "nav": {
+    "label": "Expense Splitter"
+  },
+  "resource_limits": {
+    "max_db_bytes": 52428800
+  },
   "icon": "💸",
   "ai_access": {
     "allowed": true,
     "mode": "read",
-    "db_exports": ["pending_balances", "recent_expenses"]
+    "db_exports": [
+      "pending_balances",
+      "recent_expenses"
+    ]
   }
 }

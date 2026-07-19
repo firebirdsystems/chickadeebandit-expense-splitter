@@ -131,6 +131,112 @@ export function computeSplits(amountCents, memberIds, splitType, customAmounts =
   }));
 }
 
+// ── Per-category split defaults ─────────────────────────────────────────────
+//
+// Percentages are stored in BASIS POINTS (10000 = 100%) so a three-way split
+// is exact (3333/3333/3334) instead of drifting through float percentages.
+// Every function here works in integer cents and basis points; no floats touch
+// a money value.
+
+export const TOTAL_BP = 10000;
+
+/**
+ * Basis points per member for a category, from saved category_splits rows.
+ * Returns null when the category has no saved default (caller falls back to an
+ * even split) or when the saved rows don't cover exactly `memberIds`, which
+ * happens after a member is added or removed — a stale partial rule must not
+ * silently reallocate someone's share.
+ */
+export function splitPercentsForCategory(categorySplits, category, memberIds) {
+  const rows = (categorySplits ?? []).filter(r => r.category === category);
+  if (rows.length === 0) return null;
+
+  const byMember = new Map();
+  for (const r of rows) byMember.set(r.member_id, Number(r.percent_bp) || 0);
+
+  if (byMember.size !== memberIds.length) return null;
+  if (!memberIds.every(id => byMember.has(id))) return null;
+
+  const total = memberIds.reduce((s, id) => s + byMember.get(id), 0);
+  if (total !== TOTAL_BP) return null;
+
+  return memberIds.map(id => ({ member_id: id, percent_bp: byMember.get(id) }));
+}
+
+/**
+ * Apportion `amountCents` by basis points, in whole cents that sum EXACTLY to
+ * the total. Largest-remainder: floor everyone, then hand the leftover pennies
+ * to whoever was rounded down hardest (ties break toward the earlier member, so
+ * the result is deterministic and testable).
+ */
+export function apportionByPercent(amountCents, percents) {
+  if (!percents || percents.length === 0) return [];
+
+  const scaled = percents.map((p, i) => {
+    const exact = amountCents * p.percent_bp;
+    return { i, member_id: p.member_id, base: Math.floor(exact / TOTAL_BP), rem: exact % TOTAL_BP };
+  });
+
+  let leftover = amountCents - scaled.reduce((s, x) => s + x.base, 0);
+  const order = [...scaled].sort((a, b) => b.rem - a.rem || a.i - b.i);
+  for (let k = 0; k < order.length && leftover > 0; k++, leftover--) order[k].base += 1;
+
+  return scaled.map(x => ({ member_id: x.member_id, amount_cents: x.base }));
+}
+
+/**
+ * Split amounts for a new expense, preferring the category's saved default.
+ * Returns { splits, source } where source is 'category' | 'equal' | 'custom' —
+ * the UI shows which rule was applied so a surprising number is explainable.
+ */
+export function computeSplitsWithCategory(
+  amountCents, memberIds, splitType, customAmounts = {}, categorySplits = [], category = null,
+) {
+  if (splitType === 'equal' && category) {
+    const percents = splitPercentsForCategory(categorySplits, category, memberIds);
+    if (percents) return { splits: apportionByPercent(amountCents, percents), source: 'category' };
+  }
+  return {
+    splits: computeSplits(amountCents, memberIds, splitType, customAmounts),
+    source: splitType === 'equal' ? 'equal' : 'custom',
+  };
+}
+
+/** Returns true if saved basis points for a category sum to exactly 100%. */
+export function validateCategoryPercents(percents) {
+  const total = (percents ?? []).reduce((s, p) => s + (Number(p.percent_bp) || 0), 0);
+  return total === TOTAL_BP;
+}
+
+// ── Reimbursement requests ──────────────────────────────────────────────────
+
+/**
+ * Effective status of a reimbursement request, merging the party_scoped terms
+ * row with its endpoint_only agreement row. Mirrors the CASE the hub docs
+ * recommend: terminal states on the request win, then the derived lock.
+ */
+export function reimbursementStatus(request, agreement) {
+  if (request.status === 'cancelled' || request.status === 'settled') return request.status;
+  return agreement?.status === 'locked' ? 'locked' : 'pending';
+}
+
+/**
+ * Validate a reimbursement request before writing it.
+ * Amounts arrive as integer cents; anything else is a bug upstream, so reject
+ * rather than coerce.
+ */
+export function validateReimbursement(req) {
+  if (!req.payer_id) return { ok: false, error: 'Choose who owes you.' };
+  if (req.payer_id === req.requester_id) {
+    return { ok: false, error: "You can't request money from yourself." };
+  }
+  if (!Number.isInteger(req.amount_cents) || req.amount_cents <= 0) {
+    return { ok: false, error: 'Enter an amount greater than zero.' };
+  }
+  if (req.amount_cents > 100_000_000) return { ok: false, error: 'That amount looks too large.' };
+  return { ok: true };
+}
+
 /** Returns true if the custom amounts sum exactly to the expense total. */
 export function validateCustomSplits(amountCents, customAmounts) {
   const total = Object.values(customAmounts).reduce((s, v) => s + (v || 0), 0);

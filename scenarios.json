@@ -1,0 +1,232 @@
+{
+  "scenarios": [
+    {
+      "name": "a reimbursement request is visible only to its two parties",
+      "members": {
+        "requester": "adult",
+        "payer": "adult",
+        "outsider": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "rb1",
+            "{{requester}}",
+            "{{payer}}",
+            17000,
+            "Half the dentist bill",
+            "pending",
+            "2026-07-19T10:00:00Z",
+            "2026-07-19T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "SELECT id FROM app_expense_splitter__reimbursements",
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "id": "rb1"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "payer",
+          "sql": "SELECT id FROM app_expense_splitter__reimbursements",
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "id": "rb1"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "outsider",
+          "sql": "SELECT id FROM app_expense_splitter__reimbursements",
+          "expect": {
+            "status": 200,
+            "rowCount": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "the requester column is forced to the caller \u2014 a member cannot open a request in someone else's name",
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "payer",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "rb-forged",
+            "{{requester}}",
+            "{{payer}}",
+            5000,
+            "Claiming to be them",
+            "pending",
+            "2026-07-19T10:00:00Z",
+            "2026-07-19T10:00:00Z"
+          ],
+          "_comment": "Accepted, but party_scoped's self_column rewrites requester_id to the caller \u2014 the forged value never lands.",
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "payer",
+          "sql": "SELECT id FROM app_expense_splitter__reimbursements WHERE requester_id = ?",
+          "params": [
+            "{{requester}}"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 0
+          }
+        },
+        {
+          "action": "db",
+          "as": "payer",
+          "sql": "SELECT id FROM app_expense_splitter__reimbursements WHERE requester_id = ?",
+          "params": [
+            "{{payer}}"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "id": "rb-forged"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "consent cannot be forged: only /api/agree writes the agreement row",
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "rb2",
+            "{{requester}}",
+            "{{payer}}",
+            8000,
+            "Soccer registration",
+            "pending",
+            "2026-07-19T10:00:00Z",
+            "2026-07-19T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "rb2",
+            "{{requester}}",
+            "{{payer}}",
+            1,
+            1,
+            "locked",
+            "2026-07-19T10:00:00Z"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "SELECT id FROM app_expense_splitter__reimbursement_agreements",
+          "expect": {
+            "status": 200,
+            "rowCount": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a settled request is frozen: an edit changes nothing",
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "rb3",
+            "{{requester}}",
+            "{{payer}}",
+            4200,
+            "Field trip",
+            "settled",
+            "2026-07-19T10:00:00Z",
+            "2026-07-19T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "UPDATE app_expense_splitter__reimbursements SET amount_cents = ? WHERE id = ?",
+          "params": [
+            999900,
+            "rb3"
+          ],
+          "_comment": "frozen_when freezes by narrowing the WHERE clause, not by erroring: this returns 200 and matches zero rows.",
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "SELECT id FROM app_expense_splitter__reimbursements WHERE id = ? AND amount_cents = ?",
+          "params": [
+            "rb3",
+            4200
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -8,6 +8,13 @@ import {
   fmtDate,
   today,
   categoryFor,
+  TOTAL_BP,
+  splitPercentsForCategory,
+  apportionByPercent,
+  computeSplitsWithCategory,
+  validateCategoryPercents,
+  reimbursementStatus,
+  validateReimbursement,
   CATEGORIES,
 } from '../src/logic.js';
 
@@ -260,5 +267,189 @@ describe('categoryFor', () => {
     for (const cat of CATEGORIES) {
       expect(categoryFor(cat.id).id).toBe(cat.id);
     }
+  });
+});
+
+describe('splitPercentsForCategory', () => {
+  const saved = [
+    { category: 'health', member_id: 'a', percent_bp: 7000 },
+    { category: 'health', member_id: 'b', percent_bp: 3000 },
+    { category: 'food',   member_id: 'a', percent_bp: 5000 },
+    { category: 'food',   member_id: 'b', percent_bp: 5000 },
+  ];
+
+  it('returns the saved rule in the order the members were passed', () => {
+    expect(splitPercentsForCategory(saved, 'health', ['a', 'b'])).toEqual([
+      { member_id: 'a', percent_bp: 7000 },
+      { member_id: 'b', percent_bp: 3000 },
+    ]);
+    expect(splitPercentsForCategory(saved, 'health', ['b', 'a'])).toEqual([
+      { member_id: 'b', percent_bp: 3000 },
+      { member_id: 'a', percent_bp: 7000 },
+    ]);
+  });
+
+  it('returns null when the category has no saved rule', () => {
+    expect(splitPercentsForCategory(saved, 'travel', ['a', 'b'])).toBe(null);
+    expect(splitPercentsForCategory([], 'health', ['a', 'b'])).toBe(null);
+  });
+
+  it('returns null rather than reallocating when the rule is stale', () => {
+    // A member joined: the saved rule covers 2 of 3 people. Silently splitting
+    // the expense 70/30 between two of them and giving the third nothing would
+    // be a money bug, so fall back to an even split instead.
+    expect(splitPercentsForCategory(saved, 'health', ['a', 'b', 'c'])).toBe(null);
+    // A member left, and the rule still names them.
+    expect(splitPercentsForCategory(saved, 'health', ['a'])).toBe(null);
+    // Same count, different people.
+    expect(splitPercentsForCategory(saved, 'health', ['a', 'z'])).toBe(null);
+  });
+
+  it('returns null when the saved rule does not add up to 100%', () => {
+    const broken = [
+      { category: 'x', member_id: 'a', percent_bp: 6000 },
+      { category: 'x', member_id: 'b', percent_bp: 3000 },
+    ];
+    expect(splitPercentsForCategory(broken, 'x', ['a', 'b'])).toBe(null);
+  });
+});
+
+describe('apportionByPercent', () => {
+  const sum = (rows) => rows.reduce((s, r) => s + r.amount_cents, 0);
+
+  it('splits evenly when the percentages divide cleanly', () => {
+    expect(apportionByPercent(10000, [
+      { member_id: 'a', percent_bp: 5000 },
+      { member_id: 'b', percent_bp: 5000 },
+    ])).toEqual([
+      { member_id: 'a', amount_cents: 5000 },
+      { member_id: 'b', amount_cents: 5000 },
+    ]);
+  });
+
+  it('never loses or invents a penny', () => {
+    // 34567¢ three ways is the classic rounding trap: 11522.33 each.
+    const thirds = [
+      { member_id: 'a', percent_bp: 3333 },
+      { member_id: 'b', percent_bp: 3333 },
+      { member_id: 'c', percent_bp: 3334 },
+    ];
+    for (const total of [1, 2, 3, 7, 99, 100, 101, 34567, 1000000]) {
+      expect(sum(apportionByPercent(total, thirds))).toBe(total);
+    }
+  });
+
+  it('gives leftover pennies to the largest remainder, deterministically', () => {
+    // 100¢ at 70/30 is exact; 101¢ leaves one penny, and .7 beats .3.
+    expect(apportionByPercent(101, [
+      { member_id: 'a', percent_bp: 7000 },
+      { member_id: 'b', percent_bp: 3000 },
+    ])).toEqual([
+      { member_id: 'a', amount_cents: 71 },
+      { member_id: 'b', amount_cents: 30 },
+    ]);
+    // Tied remainders break toward the earlier member, both times.
+    const tied = [
+      { member_id: 'a', percent_bp: 5000 },
+      { member_id: 'b', percent_bp: 5000 },
+    ];
+    expect(apportionByPercent(101, tied)).toEqual(apportionByPercent(101, tied));
+    expect(apportionByPercent(101, tied)[0].amount_cents).toBe(51);
+  });
+
+  it('handles a zero total and an empty rule', () => {
+    expect(apportionByPercent(0, [{ member_id: 'a', percent_bp: TOTAL_BP }]))
+      .toEqual([{ member_id: 'a', amount_cents: 0 }]);
+    expect(apportionByPercent(500, [])).toEqual([]);
+  });
+
+  it('gives everything to a 100% member', () => {
+    expect(apportionByPercent(1234, [
+      { member_id: 'a', percent_bp: TOTAL_BP },
+      { member_id: 'b', percent_bp: 0 },
+    ])).toEqual([
+      { member_id: 'a', amount_cents: 1234 },
+      { member_id: 'b', amount_cents: 0 },
+    ]);
+  });
+});
+
+describe('computeSplitsWithCategory', () => {
+  const saved = [
+    { category: 'health', member_id: 'a', percent_bp: 7000 },
+    { category: 'health', member_id: 'b', percent_bp: 3000 },
+  ];
+
+  it('applies the category rule to an equal-type expense', () => {
+    const { splits, source } = computeSplitsWithCategory(10000, ['a', 'b'], 'equal', {}, saved, 'health');
+    expect(source).toBe('category');
+    expect(splits).toEqual([
+      { member_id: 'a', amount_cents: 7000 },
+      { member_id: 'b', amount_cents: 3000 },
+    ]);
+  });
+
+  it('falls back to an even split when no rule matches', () => {
+    const { splits, source } = computeSplitsWithCategory(10000, ['a', 'b'], 'equal', {}, saved, 'travel');
+    expect(source).toBe('equal');
+    expect(splits.map(s => s.amount_cents)).toEqual([5000, 5000]);
+  });
+
+  it('lets an explicit custom split win over the category rule', () => {
+    const { splits, source } = computeSplitsWithCategory(
+      10000, ['a', 'b'], 'custom', { a: 9000, b: 1000 }, saved, 'health');
+    expect(source).toBe('custom');
+    expect(splits).toEqual([
+      { member_id: 'a', amount_cents: 9000 },
+      { member_id: 'b', amount_cents: 1000 },
+    ]);
+  });
+
+  it('still totals the full expense under a category rule', () => {
+    const { splits } = computeSplitsWithCategory(9999, ['a', 'b'], 'equal', {}, saved, 'health');
+    expect(splits.reduce((s, x) => s + x.amount_cents, 0)).toBe(9999);
+  });
+});
+
+describe('validateCategoryPercents', () => {
+  it('accepts exactly 100% and rejects anything else', () => {
+    expect(validateCategoryPercents([{ percent_bp: 5000 }, { percent_bp: 5000 }])).toBe(true);
+    expect(validateCategoryPercents([{ percent_bp: 3333 }, { percent_bp: 3333 }, { percent_bp: 3334 }])).toBe(true);
+    expect(validateCategoryPercents([{ percent_bp: 5000 }, { percent_bp: 4999 }])).toBe(false);
+    expect(validateCategoryPercents([{ percent_bp: 5000 }, { percent_bp: 5001 }])).toBe(false);
+    expect(validateCategoryPercents([])).toBe(false);
+  });
+});
+
+describe('reimbursementStatus', () => {
+  const req = (status) => ({ id: 'r1', status });
+
+  it('derives the lock from the agreement row', () => {
+    expect(reimbursementStatus(req('pending'), { status: 'locked' })).toBe('locked');
+    expect(reimbursementStatus(req('pending'), { status: 'pending' })).toBe('pending');
+    expect(reimbursementStatus(req('pending'), undefined)).toBe('pending');
+  });
+
+  it('lets terminal states on the request win over the lock', () => {
+    expect(reimbursementStatus(req('cancelled'), { status: 'locked' })).toBe('cancelled');
+    expect(reimbursementStatus(req('settled'), { status: 'locked' })).toBe('settled');
+  });
+});
+
+describe('validateReimbursement', () => {
+  const base = { requester_id: 'a', payer_id: 'b', amount_cents: 1000 };
+
+  it('accepts a well-formed request', () => {
+    expect(validateReimbursement(base)).toEqual({ ok: true });
+  });
+  it('rejects a missing or self payer', () => {
+    expect(validateReimbursement({ ...base, payer_id: '' }).ok).toBe(false);
+    expect(validateReimbursement({ ...base, payer_id: 'a' }).ok).toBe(false);
+  });
+  it('rejects non-positive, fractional, and absurd amounts', () => {
+    for (const amount_cents of [0, -100, 12.5, NaN, '1000', null]) {
+      expect(validateReimbursement({ ...base, amount_cents }).ok).toBe(false);
+    }
+    expect(validateReimbursement({ ...base, amount_cents: 100_000_001 }).ok).toBe(false);
   });
 });
