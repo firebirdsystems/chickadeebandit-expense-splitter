@@ -792,7 +792,13 @@ function requestCard(r) {
   const actions = [];
   if (r.status === 'pending' && IS_ADULT) {
     if (!iAgreed) actions.push(`<button class="btn-sm btn-primary" data-action="agreeRequest" data-request="${esc(r.id)}">Confirm</button>`);
-    if (mine)     actions.push(`<button class="btn-sm" data-action="cancelRequest" data-request="${esc(r.id)}">Cancel</button>`);
+    // Either party may cancel, not just the requester. A pending request locks
+    // only once BOTH sides confirm, and the hub's agree endpoint has no roster
+    // awareness — so if the requester leaves the household, a payer who could
+    // only ever confirm was left with a request stuck pending forever, counted
+    // in their balance, with no way to clear it. The row policy already allows
+    // it: party_scoped rewrites UPDATE to `requester_id OR payer_id = me`.
+    actions.push(`<button class="btn-sm" data-action="cancelRequest" data-request="${esc(r.id)}">Cancel</button>`);
   }
   if (r.status === 'locked' && IS_ADULT) {
     actions.push(`<button class="btn-sm btn-primary" data-action="settleRequest" data-request="${esc(r.id)}">Record payment</button>`);
@@ -1391,10 +1397,16 @@ window._deleteExpense = async function(expId) {
   renderAll();
 
   try {
-    await db('DELETE FROM app_expense_splitter__expense_splits WHERE expense_id = ?', [expId]);
+    // One statement: manifest.delete_cascades removes the expense's splits in
+    // the same transaction. As two calls, splits died FIRST — so a failure in
+    // between left an expense nobody owed a share of (computeBalances contributes
+    // nothing for an expense with no splits) and destroyed the detail needed to
+    // rebuild it, while the catch below rolled back only the in-memory copy.
     await db('DELETE FROM app_expense_splitter__expenses WHERE id = ?', [expId]);
     // Only after the row is gone — a failed delete must not strand the row
-    // pointing at a file that no longer exists.
+    // pointing at a file that no longer exists. The receipt hangs off the
+    // expense itself, so it is the client's to reclaim; the cascade covers
+    // child-owned files only.
     if (removedExp?.receipt_file_id) FILES.delete(removedExp.receipt_file_id).catch(() => {});
   } catch (e) {
     // Roll back

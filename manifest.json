@@ -91,6 +91,48 @@
       ]
     }
   },
+  "delete_cascades": {
+    "expenses": [
+      {
+        "table": "expense_splits",
+        "foreign_key": "expense_id"
+      }
+    ]
+  },
+  "member_references": {
+    "expenses": {
+      "column": "paid_by",
+      "on_removed": "keep"
+    },
+    "expense_splits": {
+      "column": "member_id",
+      "on_removed": "keep"
+    },
+    "category_splits": {
+      "column": "member_id",
+      "on_removed": "keep"
+    },
+    "reimbursements": [
+      {
+        "column": "requester_id",
+        "on_removed": "keep"
+      },
+      {
+        "column": "payer_id",
+        "on_removed": "keep"
+      }
+    ],
+    "reimbursement_agreements": [
+      {
+        "column": "requester_id",
+        "on_removed": "keep"
+      },
+      {
+        "column": "payer_id",
+        "on_removed": "keep"
+      }
+    ]
+  },
   "db_plaintext_columns": [
     "date"
   ],
@@ -99,6 +141,11 @@
     "expense.settled",
     "expense.reimbursement_requested"
   ],
+  "publish_acls": {
+    "expense.created": { "require_role": "adult" },
+    "expense.settled": { "require_role": "adult" },
+    "expense.reimbursement_requested": { "require_role": "member" }
+  },
   "nav": {
     "label": "Expense Splitter"
   },
