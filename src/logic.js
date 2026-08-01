@@ -273,3 +273,12 @@ export function today() {
     String(d.getDate()).padStart(2, '0'),
   ].join('-');
 }
+
+/**
+ * Fields the in-app search matches against (see hub-sdk `searchMatch`). The
+ * category and the note are in here alongside the description, so "groceries
+ * tesco" narrows to one expense rather than matching nothing.
+ */
+export function searchableFields(expense) {
+  return [expense.description, expense.category, expense.note];
+}

@@ -15,7 +15,7 @@ import {
   validateCategoryPercents,
   reimbursementStatus,
   validateReimbursement,
-  CATEGORIES,
+  CATEGORIES, searchableFields,
 } from '../src/logic.js';
 
 // ── computeSplits ─────────────────────────────────────────────────────────────
@@ -451,5 +451,13 @@ describe('validateReimbursement', () => {
       expect(validateReimbursement({ ...base, amount_cents }).ok).toBe(false);
     }
     expect(validateReimbursement({ ...base, amount_cents: 100_000_001 }).ok).toBe(false);
+  });
+});
+
+describe("searchableFields", () => {
+  it("reaches the category and note, not just the description", () => {
+    const fields = searchableFields({ description: "Weekly shop", category: "groceries", note: "Tesco" });
+    expect(fields).toContain("groceries");
+    expect(fields).toContain("Tesco");
   });
 });

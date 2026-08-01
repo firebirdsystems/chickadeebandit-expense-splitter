@@ -495,13 +495,13 @@
 </div>
 
 <script type="module">
-import { esc, memberColor, initial, fmtMoney, createFilesHelper } from '/hub-sdk.js';
+import { esc, memberColor, initial, fmtMoney, createFilesHelper, searchMatch } from '/hub-sdk.js';
 import {
   CATEGORIES, categoryFor,
   computeBalances, simplifyDebts, computeSplits, validateCustomSplits,
   fmtSplit, fmtDate, today,
   computeSplitsWithCategory, reimbursementStatus, validateReimbursement,
-  validateCategoryPercents, TOTAL_BP,
+  validateCategoryPercents, TOTAL_BP, searchableFields,
 } from './logic.js';
 
 /* ── Runtime globals ─────────────────────────────────── */
@@ -741,7 +741,7 @@ window._filterCat = function(cat) {
 /* ── Search ──────────────────────────────────────────── */
 window._onSearch = function(val) {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { searchQuery = val.trim().toLowerCase(); renderExpensesView(); }, 150);
+  searchTimer = setTimeout(() => { searchQuery = val.trim(); renderExpensesView(); }, 150);
 };
 
 /* ── Render all ──────────────────────────────────────── */
@@ -917,7 +917,7 @@ function debtCard(t) {
 function renderExpensesView() {
   let list = expenses;
   if (activeCategory !== 'all') list = list.filter(e => e.category === activeCategory);
-  if (searchQuery)               list = list.filter(e => e.description.toLowerCase().includes(searchQuery));
+  if (searchQuery)               list = list.filter(e => searchMatch(searchQuery, searchableFields(e)));
 
   const el = document.getElementById('expense-list');
   if (list.length === 0) {
