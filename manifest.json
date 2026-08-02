@@ -136,6 +136,18 @@
   "db_plaintext_columns": [
     "date"
   ],
+  "glance": {
+    "source": {
+      "kind": "sql",
+      "query": "SELECT COUNT(*) AS n FROM app_expense_splitter__reimbursements WHERE status = 'pending' AND payer_id = :me LIMIT 1"
+    },
+    "display": {
+      "template": "badge",
+      "count": "n",
+      "label": "reimbursements to pay",
+      "severity": "warn"
+    }
+  },
   "publishes": [
     "expense.created",
     "expense.settled",
