@@ -1,8 +1,8 @@
 {
   "id": "expense-splitter",
   "name": "Expense Splitter",
-  "version": "1.2.0",
-  "description": "Track shared expenses among household members — who paid, how to split the cost, and who owes whom. Log expenses by category with a receipt, settle up with one tap, and see a running balance per person. In a shared space, either party can request a reimbursement that both sides countersign.",
+  "version": "1.3.0",
+  "description": "Track shared expenses among household members \u2014 who paid, how to split the cost, and who owes whom. Log expenses by category with a receipt, settle up with one tap, and see a running balance per person. In a shared space, either party can request a reimbursement that both sides countersign.",
   "entrypoint": "index.html",
   "runtime": "static",
   "category": "family",
@@ -64,6 +64,11 @@
       "kind": "endpoint_only",
       "read": "adult"
     }
+  },
+  "delete_file_columns": {
+    "expenses": [
+      "receipt_file_id"
+    ]
   },
   "agreements": {
     "reimbursement_agreements": {
@@ -154,9 +159,15 @@
     "expense.reimbursement_requested"
   ],
   "publish_acls": {
-    "expense.created": { "require_role": "adult" },
-    "expense.settled": { "require_role": "adult" },
-    "expense.reimbursement_requested": { "require_role": "member" }
+    "expense.created": {
+      "require_role": "adult"
+    },
+    "expense.settled": {
+      "require_role": "adult"
+    },
+    "expense.reimbursement_requested": {
+      "require_role": "member"
+    }
   },
   "nav": {
     "label": "Expense Splitter"
@@ -164,7 +175,7 @@
   "resource_limits": {
     "max_db_bytes": 52428800
   },
-  "icon": "💸",
+  "icon": "\ud83d\udcb8",
   "ai_access": {
     "allowed": true,
     "mode": "read",
