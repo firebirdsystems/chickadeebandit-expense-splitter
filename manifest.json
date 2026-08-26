@@ -28,6 +28,13 @@
     "shared_space"
   ],
   "storage": "db",
+  "preload": {
+    "expenses": {"sql": "SELECT * FROM app_expense_splitter__expenses ORDER BY date DESC, created_at DESC"},
+    "expense_splits": {"sql": "SELECT * FROM app_expense_splitter__expense_splits"},
+    "settlements": {"sql": "SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC"},
+    "category_splits": {"sql": "SELECT * FROM app_expense_splitter__category_splits"},
+    "reimbursements": {"sql": "SELECT * FROM app_expense_splitter__reimbursements ORDER BY created_at DESC"}
+  },
   "row_policies": {
     "expenses": {
       "kind": "adult_writable",
