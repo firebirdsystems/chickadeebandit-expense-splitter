@@ -1,6 +1,6 @@
 {
   "name": "chickadee-expense-splitter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Expense splitting app for Chickadee Bandit",
   "type": "module",
   "scripts": {

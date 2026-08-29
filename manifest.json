@@ -1,7 +1,7 @@
 {
   "id": "expense-splitter",
   "name": "Expense Splitter",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Track shared expenses among household members \u2014 who paid, how to split the cost, and who owes whom. Log expenses by category with a receipt, settle up with one tap, and see a running balance per person. In a shared space, either party can request a reimbursement that both sides countersign.",
   "entrypoint": "index.html",
   "runtime": "static",
@@ -146,7 +146,8 @@
     ]
   },
   "db_plaintext_columns": [
-    "date"
+    "date",
+    "split_type"
   ],
   "glance": {
     "source": {
