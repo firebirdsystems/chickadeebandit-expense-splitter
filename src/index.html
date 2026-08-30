@@ -1305,7 +1305,7 @@ window._submitExpense = async function() {
         params
       );
     }
-    logActivity('expense.created', `${ME.name} added "${description}"`, {
+    logActivity('finance_transaction_added', `${ME.name} added "${description}"`, {
       deepLink: { appId: APP_ID, params: { expenseId: expId } },
     });
     publishEvent('expense.created', expId, { description, amount_cents: amountCents });
@@ -1495,7 +1495,7 @@ window._submitSettlement = async function(fromId, toId) {
     );
     const fromName = memberMap.get(fromId)?.name ?? fromId;
     const toName   = memberMap.get(toId)?.name   ?? toId;
-    logActivity('expense.settled', `${fromName} paid ${toName} ${fmtMoney(amountCents)}`, {});
+    logActivity('finance_transaction_added', `${fromName} paid ${toName} ${fmtMoney(amountCents)}`, {});
     publishEvent('expense.settled', id, { from_id: fromId, to_id: toId, amount_cents: amountCents });
   } catch (e) {
     settlements = settlements.filter(s => s.id !== id);
@@ -1778,9 +1778,18 @@ function renderWidget() {
   }
 }
 
-/* ── Activity logging ────────────────────────────────── */
+/* ── Activity logging ────────────────────────────────────────────────────
+   `type` must be one of the hub's own ActivityType values that a caller is
+   allowed to write (CALLER_ALLOWED_ACTIVITY_TYPES) — it is NOT this app's
+   event name. Both call sites used to pass the event type, which the hub
+   refused with a 403 on every expense; a fetch does not reject on 4xx, so
+   the .catch() below hid it and no household ever saw an entry.
+
+   __ACTIVITY_URL, not a bare '/api/activity': the app-runtime route stamps
+   the row with this app's id, so the feed can attribute and filter it. The
+   member-facing route leaves app_id null. */
 function logActivity(type, description, metadata) {
-  fetch('/api/activity', {
+  fetch(window.__ACTIVITY_URL ?? '/api/activity', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ type, description, metadata }),
