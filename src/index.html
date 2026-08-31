@@ -462,7 +462,7 @@
       <div class="tabs" role="tablist">
         <button class="tab active" id="tab-balances" data-action="switchTab" data-tab="balances">Balances</button>
         <button class="tab"        id="tab-expenses" data-action="switchTab" data-tab="expenses">Expenses</button>
-        <button class="tab"        id="tab-requests" data-action="switchTab" data-tab="requests">Requests</button>
+        <button class="tab"        id="tab-requests" data-testid="app-tab" data-action="switchTab" data-tab="requests">Requests</button>
       </div>
 
       <!-- Balances view -->
@@ -791,7 +791,7 @@ function requestCard(r) {
 
   const actions = [];
   if (r.status === 'pending' && IS_ADULT) {
-    if (!iAgreed) actions.push(`<button class="btn-sm btn-primary" data-action="agreeRequest" data-request="${esc(r.id)}">Confirm</button>`);
+    if (!iAgreed) actions.push(`<button class="btn-sm btn-primary" data-testid="confirm-btn" data-request-id="${esc(r.id)}" data-action="agreeRequest" data-request="${esc(r.id)}">Confirm</button>`);
     // Either party may cancel, not just the requester. A pending request locks
     // only once BOTH sides confirm, and the hub's agree endpoint has no roster
     // awareness — so if the requester leaves the household, a payer who could
@@ -805,7 +805,7 @@ function requestCard(r) {
   }
 
   return `
-    <div class="request-card">
+    <div class="request-card" data-testid="request-card" data-request-id="${esc(r.id)}">
       <div class="request-head">
         <div>
           <div class="request-title">${mine ? 'You asked' : 'Asked of you by'} ${esc(memberName(other))}</div>
@@ -816,7 +816,7 @@ function requestCard(r) {
       <div class="request-foot">
         <span class="badge ${badge[0]}">${esc(badge[1])}</span>
         ${r.status === 'pending'
-          ? `<span class="request-hint">${iAgreed ? 'Waiting on them' : theyAgreed ? 'They confirmed — your turn' : 'Neither side has confirmed'}</span>`
+          ? `<span class="request-hint" data-testid="request-hint" data-request-id="${esc(r.id)}">${iAgreed ? 'Waiting on them' : theyAgreed ? 'They confirmed — your turn' : 'Neither side has confirmed'}</span>`
           : ''}
         <span class="request-actions">${actions.join('')}</span>
       </div>

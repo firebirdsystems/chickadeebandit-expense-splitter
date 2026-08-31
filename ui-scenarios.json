@@ -1,0 +1,30 @@
+{
+  "scenarios": [
+    {
+      "name": "one pending reimbursement reads as waiting-on-them for the side that confirmed and your-turn for the other",
+      "members": { "requester": "adult", "payer": "adult" },
+      "steps": [
+        { "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, status, created_at, updated_at) VALUES ('es-r', ?, ?, 2500, 'pending', '2026-08-01T09:00:00Z', '2026-08-01T09:00:00Z')",
+          "params": ["{{requester}}", "{{payer}}"] },
+        { "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES ('es-r', ?, ?, 1, 0, 'pending', '2026-08-01T09:00:00Z')",
+          "params": ["{{requester}}", "{{payer}}"] },
+
+        { "action": "open", "as": "requester" },
+        { "action": "expectVisible", "as": "requester", "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]" },
+        { "action": "click", "as": "requester", "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]" },
+        { "action": "expectVisible", "as": "requester", "selector": "[data-testid=\"request-card\"][data-request-id=\"es-r\"]" },
+        { "action": "expectCount", "as": "requester", "selector": "[data-testid=\"confirm-btn\"][data-request-id=\"es-r\"]", "count": 0 },
+        { "action": "expectText", "as": "requester", "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-r\"]", "text": "Waiting on them" },
+
+        { "action": "open", "as": "payer" },
+        { "action": "expectVisible", "as": "payer", "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]" },
+        { "action": "click", "as": "payer", "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]" },
+        { "action": "expectVisible", "as": "payer", "selector": "[data-testid=\"request-card\"][data-request-id=\"es-r\"]" },
+        { "action": "expectText", "as": "payer", "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-r\"]", "text": "They confirmed" },
+        { "action": "expectVisible", "as": "payer", "selector": "[data-testid=\"confirm-btn\"][data-request-id=\"es-r\"]" }
+      ]
+    }
+  ]
+}
