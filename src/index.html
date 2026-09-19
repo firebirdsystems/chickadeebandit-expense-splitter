@@ -21,8 +21,8 @@
       --accent-fg:var(--hub-primary-fg,   #ffffff);
       --radius:   var(--hub-radius,       0.5rem);
       --shadow:   0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
-      --green:    #16a34a; --green-lt: #dcfce7;
-      --red:      #dc2626; --red-lt:   #fee2e2;
+      --green:    #16a34a; --green-ink: var(--hub-tint-success-fg, #16a34a); --green-lt: var(--hub-tint-success, #dcfce7);
+      --red:      #dc2626; --red-ink: var(--hub-tint-danger-fg, #dc2626); --red-lt:   var(--hub-tint-danger, #fee2e2);
       --amber:    #d97706; --amber-lt: #fef3c7;
     }
 
@@ -60,10 +60,10 @@
     .balance-banner.settled  { border-color: var(--border); }
     .balance-label  { font-size: .85rem; color: var(--muted); font-weight: 500; }
     .balance-amount { font-size: 1.6rem; font-weight: 800; letter-spacing: -.5px; }
-    .balance-banner.positive .balance-label  { color: var(--green); }
-    .balance-banner.negative .balance-label  { color: var(--red); }
-    .balance-banner.positive .balance-amount { color: var(--green); }
-    .balance-banner.negative .balance-amount { color: var(--red); }
+    .balance-banner.positive .balance-label  { color: var(--green-ink); }
+    .balance-banner.negative .balance-label  { color: var(--red-ink); }
+    .balance-banner.positive .balance-amount { color: var(--green-ink); }
+    .balance-banner.negative .balance-amount { color: var(--red-ink); }
     .balance-settled-msg { font-size: 1rem; font-weight: 600; color: var(--muted); }
 
     /* ── Tabs ────────────────────────────────────────────── */
@@ -195,9 +195,9 @@
       font-size: .68rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;
       text-transform: uppercase; letter-spacing: .02em;
     }
-    .badge-pending   { background: #fef3c7; color: #92400e; }
-    .badge-locked    { background: #dcfce7; color: #166534; }
-    .badge-settled   { background: #dbeafe; color: #1e40af; }
+    .badge-pending   { background: var(--hub-tint-warning, #fef3c7); color: var(--hub-tint-warning-fg, #92400e); }
+    .badge-locked    { background: var(--hub-tint-success, #dcfce7); color: var(--hub-tint-success-fg, #166534); }
+    .badge-settled   { background: var(--hub-tint-info, #dbeafe); color: var(--hub-tint-info-fg, #1e40af); }
     .badge-cancelled { background: var(--border); color: var(--muted); }
 
     /* ── Form fields (shared by the request + receipt UI) ── */
@@ -339,7 +339,7 @@
       font-size: .82rem; font-weight: 600; cursor: pointer; color: var(--muted);
       transition: all .13s; user-select: none;
     }
-    .member-check-pill.checked { border-color: var(--accent); background: #ecfeff; color: var(--accent); }
+    .member-check-pill.checked { border-color: var(--accent); background: var(--hub-tint-info, #ecfeff); color: var(--accent); }
     .member-check-pill input[type=checkbox] { display: none; }
 
     /* Split method toggle */
@@ -364,8 +364,8 @@
     .split-preview-member { display: flex; align-items: center; gap: 7px; font-size: .85rem; font-weight: 600; }
     .split-preview-amount { font-size: .85rem; font-weight: 700; color: var(--accent); }
     .split-remaining { font-size: .8rem; font-weight: 600; margin-top: 8px; text-align: right; }
-    .split-remaining.ok  { color: var(--green); }
-    .split-remaining.bad { color: var(--red); }
+    .split-remaining.ok  { color: var(--green-ink); }
+    .split-remaining.bad { color: var(--red-ink); }
 
     .custom-amounts { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     .custom-row { display: flex; align-items: center; gap: 10px; }
@@ -441,7 +441,7 @@
   <!-- Error state -->
   <div id="error-state" hidden style="padding:40px 20px;text-align:center">
     <div style="font-size:2rem;margin-bottom:10px">⚠️</div>
-    <div id="error-msg" style="color:var(--red);font-weight:600"></div>
+    <div id="error-msg" style="color:var(--red-ink);font-weight:600"></div>
     <button class="btn btn-ghost" style="margin-top:16px" onclick="location.reload()">Retry</button>
   </div>
 
@@ -1768,12 +1768,12 @@ function renderWidget() {
   } else if (myBal > 0) {
     el.innerHTML = `
       <div class="widget-label">You're owed</div>
-      <div class="widget-balance" style="color:var(--green)">${fmtMoney(myBal)}</div>
+      <div class="widget-balance" style="color:var(--green-ink)">${fmtMoney(myBal)}</div>
       ${pending ? `<div class="widget-sub">${pending} pending</div>` : ''}`;
   } else {
     el.innerHTML = `
       <div class="widget-label">You owe</div>
-      <div class="widget-balance" style="color:var(--red)">${fmtMoney(-myBal)}</div>
+      <div class="widget-balance" style="color:var(--red-ink)">${fmtMoney(-myBal)}</div>
       ${pending ? `<div class="widget-sub">${pending} pending</div>` : ''}`;
   }
 }
