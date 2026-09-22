@@ -2,7 +2,7 @@
   "id": "expense-splitter",
   "name": "Expense Splitter",
   "version": "1.3.1",
-  "description": "Track shared expenses among household members \u2014 who paid, how to split the cost, and who owes whom. Log expenses by category with a receipt, settle up with one tap, and see a running balance per person. In a shared space, either party can request a reimbursement that both sides countersign.",
+  "description": "Track shared expenses among household members — who paid, how to split the cost, and who owes whom. Log expenses by category with a receipt, settle up with one tap, and see a running balance per person. In a shared space, either party can request a reimbursement that both sides countersign.",
   "entrypoint": "index.html",
   "runtime": "static",
   "category": "family",
@@ -29,11 +29,24 @@
   ],
   "storage": "db",
   "preload": {
-    "expenses": {"sql": "SELECT * FROM app_expense_splitter__expenses ORDER BY date DESC, created_at DESC"},
-    "expense_splits": {"sql": "SELECT * FROM app_expense_splitter__expense_splits"},
-    "settlements": {"sql": "SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC"},
-    "category_splits": {"sql": "SELECT * FROM app_expense_splitter__category_splits"},
-    "reimbursements": {"sql": "SELECT * FROM app_expense_splitter__reimbursements ORDER BY created_at DESC"}
+    "expenses": {
+      "sql": "SELECT * FROM app_expense_splitter__expenses ORDER BY date DESC, created_at DESC"
+    },
+    "expense_splits": {
+      "sql": "SELECT * FROM app_expense_splitter__expense_splits"
+    },
+    "settlements": {
+      "sql": "SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC"
+    },
+    "category_splits": {
+      "sql": "SELECT * FROM app_expense_splitter__category_splits"
+    },
+    "reimbursements": {
+      "sql": "SELECT * FROM app_expense_splitter__reimbursements ORDER BY created_at DESC"
+    },
+    "payment_handles": {
+      "sql": "SELECT * FROM app_expense_splitter__payment_handles"
+    }
   },
   "row_policies": {
     "expenses": {
@@ -70,6 +83,31 @@
     "reimbursement_agreements": {
       "kind": "endpoint_only",
       "read": "adult"
+    },
+    "payment_handles": {
+      "kind": "member_writable",
+      "audit_writes": true,
+      "max_rows": 200,
+      "column_write_acls": {
+        "member_id": {
+          "writable_by": [
+            "owner"
+          ],
+          "owner_column": "member_id"
+        },
+        "service": {
+          "writable_by": [
+            "owner"
+          ],
+          "owner_column": "member_id"
+        },
+        "handle": {
+          "writable_by": [
+            "owner"
+          ],
+          "owner_column": "member_id"
+        }
+      }
     }
   },
   "delete_file_columns": {
@@ -143,7 +181,11 @@
         "column": "payer_id",
         "on_removed": "keep"
       }
-    ]
+    ],
+    "payment_handles": {
+      "column": "member_id",
+      "on_removed": "delete"
+    }
   },
   "db_plaintext_columns": [
     "date",
@@ -183,13 +225,179 @@
   "resource_limits": {
     "max_db_bytes": 52428800
   },
-  "icon": "\ud83d\udcb8",
+  "icon": "💸",
   "ai_access": {
     "allowed": true,
     "mode": "read",
     "db_exports": [
       "pending_balances",
-      "recent_expenses"
+      "recent_expenses",
+      "category_totals"
+    ]
+  },
+  "reports": {
+    "views": [
+      {
+        "id": "ledger",
+        "title": "Expense ledger",
+        "description": "Every expense in the range: what it was, who paid, and how it was split.",
+        "source": {
+          "kind": "sql",
+          "query": "SELECT e.date AS date, e.description AS description, e.category AS category, e.paid_by AS paid_by, e.amount_cents AS amount_cents, e.split_type AS split_type FROM app_expense_splitter__expenses e WHERE e.date >= :range_start AND e.date <= :range_end ORDER BY e.date, e.created_at"
+        },
+        "columns": [
+          {
+            "key": "date",
+            "label": "Date",
+            "format": "date"
+          },
+          {
+            "key": "description",
+            "label": "Description"
+          },
+          {
+            "key": "category",
+            "label": "Category"
+          },
+          {
+            "key": "paid_by",
+            "label": "Paid by",
+            "format": "member"
+          },
+          {
+            "key": "amount_cents",
+            "label": "Amount",
+            "format": "money_cents"
+          },
+          {
+            "key": "split_type",
+            "label": "Split"
+          }
+        ]
+      },
+      {
+        "id": "shares",
+        "title": "Who owed what",
+        "description": "One line per person per expense — the share each member was allocated, which is what an accountant or a mediator actually asks for.",
+        "source": {
+          "kind": "sql",
+          "query": "SELECT e.date AS date, e.description AS description, e.category AS category, s.member_id AS member_id, s.amount_cents AS share_cents, e.paid_by AS paid_by, e.amount_cents AS expense_cents FROM app_expense_splitter__expense_splits s JOIN app_expense_splitter__expenses e ON e.id = s.expense_id WHERE e.date >= :range_start AND e.date <= :range_end ORDER BY e.date, e.created_at"
+        },
+        "columns": [
+          {
+            "key": "date",
+            "label": "Date",
+            "format": "date"
+          },
+          {
+            "key": "description",
+            "label": "Description"
+          },
+          {
+            "key": "category",
+            "label": "Category"
+          },
+          {
+            "key": "member_id",
+            "label": "Member",
+            "format": "member"
+          },
+          {
+            "key": "share_cents",
+            "label": "Their share",
+            "format": "money_cents"
+          },
+          {
+            "key": "paid_by",
+            "label": "Paid by",
+            "format": "member"
+          },
+          {
+            "key": "expense_cents",
+            "label": "Expense total",
+            "format": "money_cents"
+          }
+        ]
+      },
+      {
+        "id": "settlements",
+        "title": "Payments recorded",
+        "description": "Money actually moved between members, newest last.",
+        "source": {
+          "kind": "sql",
+          "query": "SELECT p.settled_at AS settled_at, p.from_id AS from_id, p.to_id AS to_id, p.amount_cents AS amount_cents, p.note AS note FROM app_expense_splitter__settlements p WHERE substr(p.settled_at, 1, 10) >= :range_start AND substr(p.settled_at, 1, 10) <= :range_end ORDER BY p.settled_at"
+        },
+        "columns": [
+          {
+            "key": "settled_at",
+            "label": "Paid",
+            "format": "datetime"
+          },
+          {
+            "key": "from_id",
+            "label": "From",
+            "format": "member"
+          },
+          {
+            "key": "to_id",
+            "label": "To",
+            "format": "member"
+          },
+          {
+            "key": "amount_cents",
+            "label": "Amount",
+            "format": "money_cents"
+          },
+          {
+            "key": "note",
+            "label": "Note"
+          }
+        ]
+      },
+      {
+        "id": "reimbursement_record",
+        "title": "Countersigned reimbursements",
+        "description": "Reimbursement requests you are a party to, and the terms both sides signed off on. The agreed amount and note are the snapshot taken at the moment of lock, so a later edit of the request cannot rewrite them; they are blank while a request is still pending.",
+        "source": {
+          "kind": "sql",
+          "query": "SELECT r.updated_at AS updated_at, g.locked_at AS locked_at, r.requester_id AS requester_id, r.payer_id AS payer_id, g.amount_cents AS agreed_cents, g.note AS agreed_note, r.status AS status FROM app_expense_splitter__reimbursements r LEFT JOIN app_expense_splitter__reimbursement_agreements g ON g.id = r.id WHERE substr(r.updated_at, 1, 10) >= :range_start AND substr(r.updated_at, 1, 10) <= :range_end ORDER BY r.updated_at"
+        },
+        "columns": [
+          {
+            "key": "updated_at",
+            "label": "Updated",
+            "format": "datetime"
+          },
+          {
+            "key": "locked_at",
+            "label": "Both agreed",
+            "format": "datetime"
+          },
+          {
+            "key": "requester_id",
+            "label": "Owed to",
+            "format": "member"
+          },
+          {
+            "key": "payer_id",
+            "label": "Owed by",
+            "format": "member"
+          },
+          {
+            "key": "agreed_cents",
+            "label": "Agreed amount",
+            "format": "money_cents"
+          },
+          {
+            "key": "agreed_note",
+            "label": "Agreed note"
+          },
+          {
+            "key": "status",
+            "label": "Status"
+          }
+        ]
+      }
     ]
   }
 }

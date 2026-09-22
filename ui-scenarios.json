@@ -2,28 +2,699 @@
   "scenarios": [
     {
       "name": "one pending reimbursement reads as waiting-on-them for the side that confirmed and your-turn for the other",
-      "members": { "requester": "adult", "payer": "adult" },
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
       "steps": [
-        { "action": "seedRaw",
+        {
+          "action": "seedRaw",
           "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, status, created_at, updated_at) VALUES ('es-r', ?, ?, 2500, 'pending', '2026-08-01T09:00:00Z', '2026-08-01T09:00:00Z')",
-          "params": ["{{requester}}", "{{payer}}"] },
-        { "action": "seedRaw",
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "seedRaw",
           "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES ('es-r', ?, ?, 1, 0, 'pending', '2026-08-01T09:00:00Z')",
-          "params": ["{{requester}}", "{{payer}}"] },
-
-        { "action": "open", "as": "requester" },
-        { "action": "expectVisible", "as": "requester", "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]" },
-        { "action": "click", "as": "requester", "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]" },
-        { "action": "expectVisible", "as": "requester", "selector": "[data-testid=\"request-card\"][data-request-id=\"es-r\"]" },
-        { "action": "expectCount", "as": "requester", "selector": "[data-testid=\"confirm-btn\"][data-request-id=\"es-r\"]", "count": 0 },
-        { "action": "expectText", "as": "requester", "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-r\"]", "text": "Waiting on them" },
-
-        { "action": "open", "as": "payer" },
-        { "action": "expectVisible", "as": "payer", "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]" },
-        { "action": "click", "as": "payer", "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]" },
-        { "action": "expectVisible", "as": "payer", "selector": "[data-testid=\"request-card\"][data-request-id=\"es-r\"]" },
-        { "action": "expectText", "as": "payer", "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-r\"]", "text": "They confirmed" },
-        { "action": "expectVisible", "as": "payer", "selector": "[data-testid=\"confirm-btn\"][data-request-id=\"es-r\"]" }
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "requester"
+        },
+        {
+          "action": "expectVisible",
+          "as": "requester",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "requester",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "requester",
+          "selector": "[data-testid=\"request-card\"][data-request-id=\"es-r\"]"
+        },
+        {
+          "action": "expectCount",
+          "as": "requester",
+          "selector": "[data-testid=\"confirm-btn\"][data-request-id=\"es-r\"]",
+          "count": 0
+        },
+        {
+          "action": "expectText",
+          "as": "requester",
+          "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-r\"]",
+          "text": "Waiting on them"
+        },
+        {
+          "action": "open",
+          "as": "payer"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"][data-request-id=\"es-r\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-r\"]",
+          "text": "They confirmed"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"confirm-btn\"][data-request-id=\"es-r\"]"
+        }
+      ]
+    },
+    {
+      "name": "the summary tab totals the period's spending by category",
+      "members": {
+        "a": "adult",
+        "b": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, 'equal', ?)",
+          "params": [
+            "es-x1",
+            "{{a}}",
+            6000,
+            "Groceries",
+            "food",
+            "2026-09-04",
+            "2026-09-04T10:00:00Z"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, 'equal', ?)",
+          "params": [
+            "es-x2",
+            "{{b}}",
+            4000,
+            "Power bill",
+            "utilities",
+            "2026-09-20",
+            "2026-09-20T10:00:00Z"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+          "params": [
+            "es-s1",
+            "es-x1",
+            "{{a}}",
+            3000
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+          "params": [
+            "es-s2",
+            "es-x1",
+            "{{b}}",
+            3000
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+          "params": [
+            "es-s3",
+            "es-x2",
+            "{{a}}",
+            2000
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+          "params": [
+            "es-s4",
+            "es-x2",
+            "{{b}}",
+            2000
+          ]
+        },
+        {
+          "action": "open",
+          "as": "a"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#tab-summary"
+        },
+        {
+          "action": "expectVisible",
+          "as": "a",
+          "selector": "[data-testid=\"summary-total\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "[data-testid=\"summary-count\"]",
+          "text": "2 expenses"
+        },
+        {
+          "action": "expectCount",
+          "as": "a",
+          "selector": "[data-testid=\"summary-category\"]",
+          "count": 2
+        },
+        {
+          "action": "expectVisible",
+          "as": "a",
+          "selector": "[data-testid=\"summary-category\"][data-category=\"food\"]"
+        },
+        {
+          "action": "select",
+          "as": "a",
+          "selector": "#summary-period",
+          "value": "month:2026-09"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "[data-testid=\"summary-count\"]",
+          "text": "2 expenses"
+        },
+        {
+          "action": "select",
+          "as": "a",
+          "selector": "#summary-period",
+          "value": "year:2026"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "[data-testid=\"summary-count\"]",
+          "text": "2 expenses"
+        }
+      ]
+    },
+    {
+      "name": "the export block offers every report view the hub says this member may render",
+      "members": {
+        "a": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "a"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#tab-summary"
+        },
+        {
+          "action": "waitFor",
+          "as": "a",
+          "selector": "[data-testid=\"export-row\"][data-view=\"ledger\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "a",
+          "selector": "[data-testid=\"export-row\"][data-view=\"shares\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "a",
+          "selector": "[data-testid=\"export-row\"][data-view=\"settlements\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "a",
+          "selector": "[data-testid=\"export-row\"][data-view=\"reimbursement_record\"]"
+        },
+        {
+          "action": "expectCount",
+          "as": "a",
+          "selector": "[data-testid=\"export-row\"]",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "name": "picking shares reweights the split without touching the amount",
+      "members": {
+        "a": "adult",
+        "b": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "a"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#add-btn"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": "#f-amount",
+          "value": "90"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "[data-action=\"setSplitMethod\"][data-method=\"shares\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "[data-testid=\"weight-total\"]",
+          "text": "2 shares in total"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": ".custom-row:first-child input[data-input=\"weightInput\"]",
+          "value": "3"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "[data-testid=\"weight-total\"]",
+          "text": "4 shares in total"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": ".custom-row:first-child [data-weight-amount]",
+          "text": "$67.50"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "[data-action=\"setSplitMethod\"][data-method=\"percent\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "[data-testid=\"weight-total\"]",
+          "text": "Adds up to 100%"
+        }
+      ]
+    },
+    {
+      "name": "a countersigned request tells the payer where to send the money",
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES ('es-pl', ?, ?, 14000, 'Dentist', 'pending', '2026-09-01T09:00:00Z', '2026-09-01T09:00:00Z')",
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, note, status, locked_at, updated_at) VALUES ('es-pl', ?, ?, 1, 1, 14000, 'Dentist', 'locked', '2026-09-02T09:00:00Z', '2026-09-02T09:00:00Z')",
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES ('es-ph', ?, 'venmo', 'pay-me-here', '2026-09-01T09:00:00Z')",
+          "params": [
+            "{{requester}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "payer"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"][data-request-id=\"es-pl\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"pay-link\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"pay-link\"]",
+          "text": "Pay with Venmo"
+        },
+        {
+          "action": "open",
+          "as": "requester"
+        },
+        {
+          "action": "click",
+          "as": "requester",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectCount",
+          "as": "requester",
+          "selector": "[data-testid=\"pay-link\"]",
+          "count": 0
+        }
+      ]
+    },
+    {
+      "name": "a child is not offered exports, because one of them reads an adult-only table",
+      "members": {
+        "kid": "child",
+        "grown": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "grown"
+        },
+        {
+          "action": "click",
+          "as": "grown",
+          "selector": "#tab-summary"
+        },
+        {
+          "action": "waitFor",
+          "as": "grown",
+          "selector": "[data-testid=\"export-row\"][data-view=\"ledger\"]"
+        },
+        {
+          "action": "open",
+          "as": "kid"
+        },
+        {
+          "action": "click",
+          "as": "kid",
+          "selector": "#tab-summary"
+        },
+        {
+          "action": "expectVisible",
+          "as": "kid",
+          "selector": "#summary-body"
+        },
+        {
+          "action": "expectCount",
+          "as": "kid",
+          "selector": "[data-testid=\"export-row\"]",
+          "count": 0
+        }
+      ]
+    },
+    {
+      "name": "a percent split shows no per-member amount until the rule totals 100%",
+      "members": {
+        "a": "adult",
+        "b": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "a"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#add-btn"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": "#f-amount",
+          "value": "100"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "[data-action=\"setSplitMethod\"][data-method=\"percent\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "[data-testid=\"weight-total\"]",
+          "text": "Adds up to 100%"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": ".custom-row:first-child [data-weight-amount]",
+          "text": "$50"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": ".custom-row:first-child input[data-input=\"weightInput\"]",
+          "value": "30"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "[data-testid=\"weight-total\"]",
+          "text": "must be 100%"
+        },
+        {
+          "action": "expectNoText",
+          "as": "a",
+          "selector": ".custom-row:first-child [data-weight-amount]",
+          "text": "$"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": ".custom-row:first-child input[data-input=\"weightInput\"]",
+          "value": "50"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": ".custom-row:first-child [data-weight-amount]",
+          "text": "$50"
+        }
+      ]
+    },
+    {
+      "name": "an expense split by a saved category rule says so, rather than claiming it was equal",
+      "members": {
+        "a": "adult",
+        "b": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES ('cr-a', 'health', ?, 7000, '2026-09-01T09:00:00Z')",
+          "params": [
+            "{{a}}"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES ('cr-b', 'health', ?, 3000, '2026-09-01T09:00:00Z')",
+          "params": [
+            "{{b}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "a"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#add-btn"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": "#f-amount",
+          "value": "100"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": "#f-desc",
+          "value": "Dentist"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "[data-action=\"setCategory\"][data-cat=\"health\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "#f-split-preview",
+          "text": "Using the saved split"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#f-save-btn"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": ".expense-card"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": ".modal-sheet",
+          "text": "Category rule"
+        },
+        {
+          "action": "expectNoText",
+          "as": "a",
+          "selector": ".modal-sheet",
+          "text": "Equal"
+        }
+      ]
+    },
+    {
+      "name": "saving a split rule writes it in one go and the next expense uses it",
+      "members": {
+        "a": "adult",
+        "b": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "a"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#rules-btn"
+        },
+        {
+          "action": "select",
+          "as": "a",
+          "selector": "#sr-cat",
+          "value": "health"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": "#sr-rows input:first-of-type",
+          "value": "70"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": "#sr-rows label:nth-child(2) input",
+          "value": "30"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "#sr-total",
+          "text": "Adds up to 100%"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#sr-save"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "text": "Split rule saved"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#add-btn"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": "#f-amount",
+          "value": "100"
+        },
+        {
+          "action": "fill",
+          "as": "a",
+          "selector": "#f-desc",
+          "value": "Dentist"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "[data-action=\"setCategory\"][data-cat=\"health\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": "#f-split-preview",
+          "text": "Using the saved split"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#f-save-btn"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "click",
+          "as": "a",
+          "selector": ".expense-card"
+        },
+        {
+          "action": "expectText",
+          "as": "a",
+          "selector": ".modal-sheet",
+          "text": "Category rule"
+        }
       ]
     }
   ]

@@ -66,7 +66,7 @@
       ]
     },
     {
-      "name": "the requester column is forced to the caller \u2014 a member cannot open a request in someone else's name",
+      "name": "the requester column is forced to the caller — a member cannot open a request in someone else's name",
       "members": {
         "requester": "adult",
         "payer": "adult"
@@ -86,7 +86,7 @@
             "2026-07-19T10:00:00Z",
             "2026-07-19T10:00:00Z"
           ],
-          "_comment": "Accepted, but party_scoped's self_column rewrites requester_id to the caller \u2014 the forged value never lands.",
+          "_comment": "Accepted, but party_scoped's self_column rewrites requester_id to the caller — the forged value never lands.",
           "expect": {
             "status": 200
           }
@@ -224,6 +224,214 @@
           "expect": {
             "status": 200,
             "rowCount": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "a payment handle is readable by everyone, because the person who owes you is the one who needs it",
+      "members": {
+        "owner": "adult",
+        "other": "adult",
+        "kid": "child"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "owner",
+          "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?, ?, ?, ?, ?)",
+          "params": [
+            "ph1",
+            "{{owner}}",
+            "venmo",
+            "owner-handle",
+            "2026-09-22T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "other",
+          "sql": "SELECT member_id, handle FROM app_expense_splitter__payment_handles",
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "handle": "owner-handle"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "SELECT member_id, handle FROM app_expense_splitter__payment_handles",
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "handle": "owner-handle"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a member cannot save a payment handle in somebody else's name",
+      "members": {
+        "attacker": "adult",
+        "victim": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "attacker",
+          "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?, ?, ?, ?, ?)",
+          "params": [
+            "ph-forged",
+            "{{victim}}",
+            "venmo",
+            "attacker-handle",
+            "2026-09-22T10:00:00Z"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "victim",
+          "sql": "SELECT id FROM app_expense_splitter__payment_handles",
+          "expect": {
+            "status": 200,
+            "rowCount": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "a member cannot redirect somebody else's payment handle to their own account",
+      "members": {
+        "victim": "adult",
+        "attacker": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?, ?, ?, ?, ?)",
+          "params": [
+            "ph-v",
+            "{{victim}}",
+            "venmo",
+            "victim-handle",
+            "2026-09-22T10:00:00Z"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?, ?, ?, ?, ?)",
+          "params": [
+            "ph-a",
+            "{{attacker}}",
+            "venmo",
+            "attacker-own",
+            "2026-09-22T10:00:00Z"
+          ]
+        },
+        {
+          "action": "db",
+          "as": "attacker",
+          "sql": "UPDATE app_expense_splitter__payment_handles SET handle = ? WHERE id = ?",
+          "params": [
+            "attacker-handle",
+            "ph-v"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "victim",
+          "sql": "SELECT handle FROM app_expense_splitter__payment_handles WHERE id = 'ph-v'",
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "handle": "victim-handle"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "attacker",
+          "sql": "UPDATE app_expense_splitter__payment_handles SET handle = ? WHERE id = ?",
+          "params": [
+            "attacker-new",
+            "ph-a"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "attacker",
+          "sql": "SELECT handle FROM app_expense_splitter__payment_handles WHERE id = 'ph-a'",
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "handle": "attacker-new"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a child cannot save a payment handle for an adult either",
+      "members": {
+        "kid": "child",
+        "adult": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?, ?, ?, ?, ?)",
+          "params": [
+            "ph-k",
+            "{{adult}}",
+            "venmo",
+            "kid-handle",
+            "2026-09-22T10:00:00Z"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?, ?, ?, ?, ?)",
+          "params": [
+            "ph-k2",
+            "{{kid}}",
+            "venmo",
+            "kid-own",
+            "2026-09-22T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
           }
         }
       ]

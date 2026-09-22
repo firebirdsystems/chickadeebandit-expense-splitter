@@ -214,6 +214,54 @@
       border: 1.5px solid var(--border); display: block; margin-top: 8px;
     }
 
+    /* ── Summary ─────────────────────────────────────────── */
+    .sum-total {
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: var(--radius); padding: 16px; text-align: center; margin-bottom: 14px;
+    }
+    .sum-total-amount { font-size: 1.8rem; font-weight: 700; letter-spacing: -.02em; }
+    .sum-total-sub    { font-size: .8rem; color: var(--muted); margin-top: 2px; }
+    .sum-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 0; border-bottom: 1px solid var(--border);
+    }
+    .sum-row:last-child { border-bottom: none; }
+    .sum-row-main  { flex: 1; min-width: 0; }
+    .sum-row-name  { font-size: .88rem; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+    .sum-row-sub   { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+    .sum-row-value { font-weight: 700; font-size: .95rem; white-space: nowrap; }
+    .sum-bar {
+      height: 4px; border-radius: 3px; background: var(--border);
+      margin-top: 5px; overflow: hidden;
+    }
+    .sum-bar > i { display: block; height: 100%; background: var(--accent); }
+    .sum-net-pos { color: var(--green-ink); }
+    .sum-net-neg { color: var(--red-ink); }
+
+    /* ── Export ──────────────────────────────────────────── */
+    .export-card {
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px; margin-top: 16px;
+    }
+    .export-row {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 8px 0; border-bottom: 1px solid var(--border);
+    }
+    .export-row:last-of-type { border-bottom: none; }
+    .export-row-main { flex: 1; min-width: 150px; }
+    .export-row-title { font-size: .87rem; font-weight: 600; }
+    .export-row-sub   { font-size: .75rem; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+    .export-actions   { display: flex; gap: 6px; }
+
+    /* ── Pay-via link ────────────────────────────────────── */
+    .pay-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 14px; border-radius: 8px; text-decoration: none;
+      background: var(--accent); color: var(--accent-fg);
+      font-size: .85rem; font-weight: 600;
+    }
+    .pay-note { font-size: .8rem; color: var(--muted); margin-top: 10px; }
+
     /* ── Empty states ────────────────────────────────────── */
     .empty-state {
       text-align: center; padding: 48px 20px; color: var(--muted);
@@ -462,6 +510,7 @@
       <div class="tabs" role="tablist">
         <button class="tab active" id="tab-balances" data-action="switchTab" data-tab="balances">Balances</button>
         <button class="tab"        id="tab-expenses" data-action="switchTab" data-tab="expenses">Expenses</button>
+        <button class="tab"        id="tab-summary"  data-action="switchTab" data-tab="summary">Summary</button>
         <button class="tab"        id="tab-requests" data-testid="app-tab" data-action="switchTab" data-tab="requests">Requests</button>
       </div>
 
@@ -479,11 +528,22 @@
         <div id="expense-list"></div>
       </div>
 
+      <!-- Spending summary view -->
+      <div id="view-summary" hidden role="tabpanel">
+        <div class="search-row">
+          <select id="summary-period" class="search-input" data-change="summaryPeriod"
+                  aria-label="Summary period"></select>
+        </div>
+        <div id="summary-body"></div>
+        <div id="export-block"></div>
+      </div>
+
       <!-- Reimbursement requests view -->
       <div id="view-requests" hidden role="tabpanel">
         <div class="search-row" style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn-add" id="request-btn" data-action="openRequest">+ Request money back</button>
           <button class="btn-add" id="rules-btn" data-action="openSplitRules">Split rules</button>
+          <button class="btn-add" id="pay-btn" data-action="openPayHandle">How to pay me</button>
         </div>
         <div id="request-list"></div>
       </div>
@@ -502,6 +562,10 @@ import {
   fmtSplit, fmtDate,
   computeSplitsWithCategory, reimbursementStatus, validateReimbursement,
   validateCategoryPercents, TOTAL_BP, searchableFields,
+  SPLIT_METHODS, splitTypeLabel, validateShares, sharesError, MAX_SHARES,
+  CATEGORY_RULE_SPLIT, apportionByShares, apportionByPercent,
+  summarize, expenseMonths, monthLabel, rangeForPeriod, monthKey,
+  PAYMENT_SERVICES, paymentServiceFor, validateHandle, displayHandle, payLink, handleMap,
 } from './logic.js';
 
 /* ── Runtime globals ─────────────────────────────────── */
@@ -534,6 +598,10 @@ const CLICK_ACTIONS = {
   openAdd:          () => window._openAdd(),
   openRequest:      () => window._openRequest(),
   openSplitRules:   () => window._openSplitRules(),
+  openPayHandle:    () => window._openPayHandle(),
+  savePayHandle:    () => window._savePayHandle(),
+  clearPayHandle:   () => window._clearPayHandle(),
+  runReport:        el => window._runReport(el.dataset.view, el.dataset.format),
   closeModal:       () => window._closeModal(),
   submitExpense:    () => window._submitExpense(),
   submitRequest:    () => window._submitRequest(),
@@ -554,11 +622,16 @@ const CLICK_ACTIONS = {
 };
 const INPUT_ACTIONS = {
   search:         el => window._onSearch(el.value),
+  weightInput:    el => window._setWeight(el.dataset.member, el.value),
+  settleAmount:   () => window._onSettleAmount(
+                          document.querySelector('[data-action="submitSettlement"]')?.dataset.to),
   formChange:     () => window._formChange(),
   splitRuleTotal: () => window._splitRuleTotal(),
   customInput:    el => window._onCustomInput(el.dataset.member, el.value),
 };
 const CHANGE_ACTIONS = {
+  summaryPeriod:   el => window._setSummaryPeriod(el.value),
+  handleService:   () => window._onHandleService(),
   receiptPicked:   () => window._onReceiptPicked(),
   renderSplitRule: () => window._renderSplitRule(),
   toggleSplit:     el => window._toggleSplit(el.dataset.member, el.checked),
@@ -585,11 +658,19 @@ let balances     = {};
 let transactions = [];
 let categorySplits = [];   // saved per-category default percentages
 let requests       = [];   // reimbursement requests, merged with their agreements
+let paymentHandles = [];   // one row per member: where to send them money
+let handles        = new Map();
 
 let activeTab      = 'balances';
 let activeCategory = 'all';
 let searchQuery    = '';
 let searchTimer    = null;
+let summaryPeriod  = 'all';
+// Populated from api/reports, never hard-coded: the endpoint already decides
+// which views this caller may render (it drops the admin-only ones), so a list
+// built here would be a second copy of that decision, free to drift from the
+// manifest and from the caller's role at the same time.
+let reportViews    = [];
 
 /* ── DB helper ───────────────────────────────────────── */
 async function db(sql, params = []) {
@@ -598,6 +679,21 @@ async function db(sql, params = []) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sql, params }),
+  });
+  if (!res.ok) throw new Error(`DB error ${res.status}`);
+  return res.json();
+}
+
+/** Several statements in ONE D1 transaction — api/db takes `{statements:[…]}`
+ *  alongside `{sql, params}`, and runs the identical validation and row-policy
+ *  rewrite on each. Use it wherever a half-applied pair would be worse than a
+ *  failure. */
+async function dbBatch(statements) {
+  if (!DB) return { results: [] };
+  const res = await fetch(DB, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ statements }),
   });
   if (!res.ok) throw new Error(`DB error ${res.status}`);
   return res.json();
@@ -617,7 +713,10 @@ async function init() {
   }
 
   try {
-    await Promise.all([loadMembers(), loadData()]);
+    // The view list is not needed to render anything above the fold, so a slow
+    // or failing reports endpoint must not hold up the app; loadReportViews
+    // swallows its own errors and leaves the Export block unrendered.
+    await Promise.all([loadMembers(), loadData(), loadReportViews()]);
     recompute();
     showMain();
     renderAll();
@@ -655,18 +754,21 @@ async function loadData() {
   // are both governed, so a JOIN across them is rejected — load both and merge
   // by id, the same shape co-parenting uses for swaps. All six reads are
   // independent, so they go out together rather than in two waves.
-  const [eRes, sRes, pRes, cRes, rRes, aRes] = await Promise.all([
+  const [eRes, sRes, pRes, cRes, rRes, aRes, hRes] = await Promise.all([
     db('SELECT * FROM app_expense_splitter__expenses    ORDER BY date DESC, created_at DESC'),
     db('SELECT * FROM app_expense_splitter__expense_splits'),
     db('SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC'),
     db('SELECT * FROM app_expense_splitter__category_splits').catch(() => ({ rows: [] })),
     db('SELECT * FROM app_expense_splitter__reimbursements ORDER BY created_at DESC').catch(() => ({ rows: [] })),
     db('SELECT * FROM app_expense_splitter__reimbursement_agreements').catch(() => ({ rows: [] })),
+    db('SELECT * FROM app_expense_splitter__payment_handles').catch(() => ({ rows: [] })),
   ]);
   expenses       = eRes.rows;
   splits         = sRes.rows;
   settlements    = pRes.rows;
   categorySplits = cRes.rows;
+  paymentHandles = hRes.rows;
+  handles        = handleMap(paymentHandles);
 
   const agrById = new Map(aRes.rows.map(a => [a.id, a]));
   requests = rRes.rows.map(r => {
@@ -706,13 +808,14 @@ function showError(msg) {
 /* ── Tab switching ───────────────────────────────────── */
 window._switchTab = function(tab) {
   activeTab = tab;
-  for (const t of ['balances', 'expenses', 'requests']) {
+  for (const t of ['balances', 'expenses', 'summary', 'requests']) {
     document.getElementById(`view-${t}`).hidden = tab !== t;
     document.getElementById(`tab-${t}`).classList.toggle('active', tab === t);
   }
   if (tab === 'expenses' && !document.getElementById('cat-filter').children.length) {
     renderCatFilter();
   }
+  if (tab === 'summary') renderSummary();
   if (tab === 'requests') renderRequests();
 };
 
@@ -751,8 +854,187 @@ function renderAll() {
   renderBalancesView();
   renderExpensesView();
   renderCatFilter();
+  renderSummary();
   renderRequests();
 }
+
+/* ── Spending summary ────────────────────────────────── */
+// Everything here is computed from rows already in memory. The period selector
+// is rebuilt on every render because the month list is derived from the
+// expenses themselves — adding the first expense of a new month has to make
+// that month selectable without a reload.
+
+function renderPeriodOptions() {
+  const sel = document.getElementById('summary-period');
+  if (!sel) return;
+  const years  = [...new Set(expenseMonths(expenses).map(k => k.slice(0, 4)))];
+  const opts   = [{ value: 'all', label: 'All time' }]
+    .concat(years.map(y => ({ value: `year:${y}`, label: y })))
+    .concat(expenseMonths(expenses).map(k => ({ value: `month:${k}`, label: monthLabel(k) })));
+  // A period that no longer has any expenses behind it (the last one was just
+  // deleted) would otherwise leave the select showing a value it has no option
+  // for, which renders as blank rather than as the all-time view it falls back
+  // to internally.
+  if (!opts.some(o => o.value === summaryPeriod)) summaryPeriod = 'all';
+  sel.innerHTML = opts.map(o =>
+    `<option value="${esc(o.value)}"${o.value === summaryPeriod ? ' selected' : ''}>${esc(o.label)}</option>`
+  ).join('');
+}
+
+window._setSummaryPeriod = function(value) {
+  summaryPeriod = value;
+  renderSummary();
+};
+
+function renderSummary() {
+  renderPeriodOptions();
+  renderExportBlock();
+  const el = document.getElementById('summary-body');
+  if (!el) return;
+
+  const sum = summarize(expenses, splits, rangeForPeriod(summaryPeriod));
+  if (sum.count === 0) {
+    el.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <div class="empty-title">Nothing spent yet</div>
+        <div class="empty-sub">${expenses.length === 0
+          ? 'Add an expense and its totals show up here.'
+          : 'No expenses in this period.'}</div>
+      </div>`;
+    return;
+  }
+
+  const top = sum.byCategory[0]?.total_cents || 1;
+  el.innerHTML = `
+    <div class="sum-total" data-testid="summary-total">
+      <div class="sum-total-amount">${fmtMoney(sum.total_cents)}</div>
+      <div class="sum-total-sub" data-testid="summary-count">${sum.count} expense${sum.count === 1 ? '' : 's'}</div>
+    </div>
+
+    <div class="section-label">By category</div>
+    <div class="sum-list">
+      ${sum.byCategory.map(c => {
+        const cat = categoryFor(c.category);
+        return `<div class="sum-row" data-testid="summary-category" data-category="${esc(c.category)}">
+          <div class="sum-row-main">
+            <div class="sum-row-name">${cat.icon} ${esc(cat.label)}</div>
+            <div class="sum-bar"><i style="width:${Math.round((c.total_cents / top) * 100)}%"></i></div>
+          </div>
+          <div class="sum-row-value">${fmtSplit(c.total_cents)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <div class="section-label">By person</div>
+    <div class="sum-list">
+      ${sum.byMember.map(r => {
+        const m = memberMap.get(r.member_id) ?? { id: r.member_id, name: r.member_id, role: 'adult' };
+        // Paid and owed are both true and neither is the whole story, so the
+        // row prints both and names the difference rather than picking one.
+        const net = r.net_cents;
+        const netText = net === 0 ? 'even'
+          : net > 0 ? `${fmtSplit(net)} ahead` : `${fmtSplit(-net)} behind`;
+        return `<div class="sum-row">
+          <div class="sum-row-main">
+            <div class="sum-row-name">${avatar(m, 'sm')} ${esc(m.name)}</div>
+            <div class="sum-row-sub">
+              paid ${fmtSplit(r.paid_cents)} · owed ${fmtSplit(r.share_cents)} ·
+              <span class="${net > 0 ? 'sum-net-pos' : net < 0 ? 'sum-net-neg' : ''}">${netText}</span>
+            </div>
+          </div>
+          <div class="sum-row-value">${fmtSplit(r.paid_cents)}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/* ── Export (manifest `reports`) ─────────────────────── */
+// The hub renders the document; the app only says which view and what range.
+// The list comes from api/reports rather than from a copy here, so a view added
+// to the manifest appears with no change to this file.
+//
+// But that endpoint only drops the ADMIN-only change-history view: it does not
+// look at what a view's SQL reads, and `reimbursement_record` touches
+// reimbursement_agreements, which is endpoint_only with read:"adult". A child
+// clicking it would get an opaque 500 in a new tab, and there is no way to
+// catch that once window.open has handed the URL to the browser.
+//
+// So the whole block is adult-gated instead of one view being special-cased —
+// which would put the very copy of the manifest back that using the endpoint
+// avoids. Every report here is a money record, the Add button is already
+// adult-only for the same reason, and the endpoint refuses guests outright.
+
+const REPORTS_URL = window.__REPORTS_URL ?? '';
+
+async function loadReportViews() {
+  if (!REPORTS_URL || !IS_ADULT) return;
+  try {
+    const res = await fetch(REPORTS_URL, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return;
+    const body = await res.json();
+    reportViews = Array.isArray(body?.views) ? body.views : [];
+  } catch {
+    reportViews = [];   // an export button that cannot work is worse than none
+  }
+}
+
+function renderExportBlock() {
+  const el = document.getElementById('export-block');
+  if (!el) return;
+  if (!reportViews.length || !IS_ADULT) { el.innerHTML = ''; return; }
+
+  const { from, to } = reportBounds();
+  const periodName = summaryPeriod === 'all'
+    ? 'all time'
+    : document.getElementById('summary-period')?.selectedOptions?.[0]?.textContent ?? 'this period';
+
+  el.innerHTML = `
+    <div class="section-label">Export</div>
+    <div class="export-card">
+      ${reportViews.map(v => `
+        <div class="export-row" data-testid="export-row" data-view="${esc(v.id)}">
+          <div class="export-row-main">
+            <div class="export-row-title">${esc(v.title)}</div>
+            ${v.description ? `<div class="export-row-sub">${esc(v.description)}</div>` : ''}
+          </div>
+          <div class="export-actions">
+            <button class="btn btn-sm btn-ghost" data-action="runReport"
+                    data-view="${esc(v.id)}" data-format="html">View</button>
+            <button class="btn btn-sm btn-primary" data-action="runReport"
+                    data-view="${esc(v.id)}" data-format="csv">CSV</button>
+          </div>
+        </div>`).join('')}
+      <p class="hint" style="margin-top:10px">Covers ${esc(periodName)}${
+        from ? ` (${esc(from)} to ${esc(to)})` : ''
+      }. Each document is stamped with who generated it, when, and a checksum.</p>
+    </div>`;
+}
+
+// rangeForPeriod's upper bound is the synthetic '-32' that makes a string
+// comparison cover a whole month without knowing its length. The hub validates
+// ?to= as a real date and a reader would rightly balk at "September 32", so
+// both the request and the on-screen hint use the last calendar day. Every
+// month has a 31st in string terms, and no stored date can fall between the
+// two, so nothing is lost by clamping.
+function reportBounds() {
+  const { from, to } = rangeForPeriod(summaryPeriod);
+  return { from, to: to ? to.replace(/-32$/, '-31') : to };
+}
+
+window._runReport = function(viewId, format) {
+  if (!REPORTS_URL) return;
+  const url = new URL(`${REPORTS_URL}/${encodeURIComponent(viewId)}`, window.location.href);
+  url.searchParams.set('format', format);
+  const { from, to } = reportBounds();
+  if (from) url.searchParams.set('from', from);
+  if (to)   url.searchParams.set('to', to);
+  // A new tab, not this frame: the CSV comes back as an attachment (the iframe
+  // is sandboxed with allow-downloads and allow-popups) and the HTML document
+  // carries its own strict CSP, which would fight this page's if it rendered
+  // inside it.
+  window.open(url.toString(), '_blank', 'noopener');
+};
 
 /* ── Reimbursement requests ──────────────────────────── */
 // The one-tap "settle up" on the Balances tab records a payment unilaterally,
@@ -820,6 +1102,9 @@ function requestCard(r) {
           : ''}
         <span class="request-actions">${actions.join('')}</span>
       </div>
+      ${r.status === 'locked' && r.payer_id === ME.id
+        ? payBlock(r.requester_id, r.amount_cents, r.note || '')
+        : ''}
     </div>`;
 }
 
@@ -998,6 +1283,11 @@ const f = {
   splitAmong: new Set(),
   splitType: 'equal',
   custom: {},   // memberId → dollar string
+  // memberId → whole shares in 'shares' mode, basis points in 'percent' mode.
+  // One map, not two: only one of the modes is live at a time, and keeping a
+  // stale percent map around behind a shares UI is how a saved split stops
+  // matching the numbers the member was looking at.
+  weights: {},
   receiptFileId: null,
 };
 
@@ -1007,6 +1297,7 @@ window._openAdd = function() {
   f.splitAmong = new Set(members.map(m => m.id));
   f.splitType  = 'equal';
   f.custom     = {};
+  f.weights    = {};
   f.receiptFileId = null;
 
   openModal(`
@@ -1050,8 +1341,10 @@ window._openAdd = function() {
       <div class="form-group">
         <label class="form-label">Split method</label>
         <div class="split-toggle">
-          <button class="split-toggle-btn active" id="f-method-equal" data-action="setSplitMethod" data-method="equal">= Equal</button>
-          <button class="split-toggle-btn"        id="f-method-custom" data-action="setSplitMethod" data-method="custom">≠ Custom</button>
+          ${SPLIT_METHODS.map(m => `
+            <button class="split-toggle-btn${m.id === 'equal' ? ' active' : ''}"
+                    id="f-method-${esc(m.id)}" data-action="setSplitMethod"
+                    data-method="${esc(m.id)}">${esc(m.symbol)} ${esc(m.label)}</button>`).join('')}
         </div>
         <div id="f-split-preview"></div>
       </div>
@@ -1148,9 +1441,30 @@ window._toggleSplit = function(id, checked) {
 
 window._setSplitMethod = function(method) {
   f.splitType = method;
-  document.getElementById('f-method-equal')?.classList.toggle('active', method === 'equal');
-  document.getElementById('f-method-custom')?.classList.toggle('active', method === 'custom');
+  // Shares and percent read the same map in different units, so switching
+  // between them starts clean rather than reinterpreting "2" as 0.02%.
+  f.weights = {};
+  for (const m of SPLIT_METHODS) {
+    document.getElementById(`f-method-${m.id}`)?.classList.toggle('active', method === m.id);
+  }
   updateFormPreview();
+};
+
+/** Weight input for the live member, in whichever unit the method is using.
+ *  Percent arrives as a percentage and is stored in basis points, so 33.33%
+ *  is an exact 3333 rather than a float that later has to be rounded twice. */
+window._setWeight = function(memberId, value) {
+  const n = parseFloat(value);
+  // Clamped on the way in, not only validated on the way out. `min="0"` on the
+  // input is a browser courtesy — it does not stop a paste, a spinner on a
+  // detached field, or a stale value — and a negative share apportions a
+  // NEGATIVE amount_cents, which computeBalances reads as the payer owing the
+  // member money.
+  f.weights[memberId] = f.splitType === 'percent'
+    ? (isNaN(n) ? 0 : Math.min(TOTAL_BP, Math.max(0, Math.round(n * 100))))
+    : (isNaN(n) ? 0 : Math.min(MAX_SHARES, Math.max(0, Math.trunc(n))));
+  updateWeightTotals();
+  validateForm();
 };
 
 window._formChange = function() { updateFormPreview(); };
@@ -1166,11 +1480,66 @@ function getAmountCents() {
   return isNaN(val) ? 0 : Math.round(val * 100);
 }
 
+/**
+ * Fills in weights for the members that have none, in the unit the live method
+ * uses. Percent is re-evened whenever the selected members change: a 60/40
+ * agreed between two people says nothing about three, and carrying the old
+ * numbers forward would leave a rule that quietly no longer totals 100%.
+ */
+function seedWeights() {
+  const ids = [...f.splitAmong];
+  if (f.splitType === 'shares') {
+    for (const id of ids) if (!Number.isInteger(f.weights[id])) f.weights[id] = 1;
+    return;
+  }
+  if (f.splitType !== 'percent') return;
+  const covers = ids.length > 0
+    && ids.every(id => Number.isInteger(f.weights[id]))
+    && ids.reduce((s, id) => s + f.weights[id], 0) === TOTAL_BP;
+  if (covers) return;
+  f.weights = {};
+  const n = ids.length;
+  if (!n) return;
+  // Exactly 100%: an even three-way share is 33.33/33.33/33.34, not 99.99%.
+  const even = Math.floor(TOTAL_BP / n);
+  ids.forEach((id, i) => { f.weights[id] = even + (i === 0 ? TOTAL_BP - even * n : 0); });
+}
+
+/** The live weights as apportionByShares / apportionByPercent want them. */
+function weightRows(ids) {
+  return ids.map(id => ({ member_id: id, weight: f.weights[id] ?? 0 }));
+}
+
 function updateFormPreview() {
   const amountCents  = getAmountCents();
   const splitMembers = [...f.splitAmong];
   const previewEl    = document.getElementById('f-split-preview');
   if (!previewEl) return;
+  seedWeights();
+
+  if (f.splitType === 'shares' || f.splitType === 'percent') {
+    const isPercent = f.splitType === 'percent';
+    previewEl.innerHTML = `
+      <div class="custom-amounts">
+        ${splitMembers.map(id => {
+          const m = memberMap.get(id) ?? { id, name: id, role: 'adult' };
+          const raw = f.weights[id] ?? 0;
+          return `<div class="custom-row">
+            <div class="custom-row-label">${avatar(m, 'sm')} ${esc(m.name)}</div>
+            <input class="custom-input" type="number"
+                   min="0" ${isPercent ? 'max="100" step="0.01"' : `max="${MAX_SHARES}" step="1"`}
+                   value="${esc(String(isPercent ? (raw / 100).toFixed(2) : raw))}"
+                   data-input="weightInput" data-member="${esc(id)}"
+                   aria-label="${esc(m.name)} ${isPercent ? 'percent' : 'shares'}">
+            <div class="split-preview-amount" data-weight-amount="${esc(id)}"></div>
+          </div>`;
+        }).join('')}
+        <div id="f-weight-total" class="split-remaining" data-testid="weight-total"></div>
+      </div>`;
+    updateWeightTotals();
+    validateForm();
+    return;
+  }
 
   if (f.splitType === 'equal') {
     if (amountCents > 0 && splitMembers.length > 0) {
@@ -1216,6 +1585,49 @@ function updateFormPreview() {
   validateForm();
 }
 
+/**
+ * Recomputes the per-member amounts and the footer line WITHOUT re-rendering
+ * the inputs — re-rendering on every keystroke would move the caret to the end
+ * of the field, which makes editing the middle of "33.33" impossible.
+ */
+function updateWeightTotals() {
+  const ids = [...f.splitAmong];
+  const amountCents = getAmountCents();
+  const isPercent = f.splitType === 'percent';
+  const rows = weightRows(ids);
+  const total = rows.reduce((s, r) => s + r.weight, 0);
+
+  // A percent set that does not total exactly 100% has no defined answer, and
+  // apportioning one anyway produces a number that looks authoritative: 1%/0%
+  // of $100 previewed as $1.01 and $0.01, because the largest-remainder pass
+  // hands out at most one penny per member and the other 99 dollars vanish.
+  // Show nothing until the rule is whole; the footer already says why.
+  const percentReady = isPercent && total === TOTAL_BP;
+  const sharesReady = !isPercent && validateShares(f.weights, ids);
+  const split = amountCents > 0 && (percentReady || sharesReady)
+    ? (isPercent
+        ? apportionByPercent(amountCents, rows.map(r => ({ member_id: r.member_id, percent_bp: r.weight })))
+        : apportionByShares(amountCents, rows.map(r => ({ member_id: r.member_id, shares: r.weight }))))
+    : [];
+  const byMember = new Map(split.map(x => [x.member_id, x.amount_cents]));
+  for (const el of document.querySelectorAll('[data-weight-amount]')) {
+    const cents = byMember.get(el.dataset.weightAmount);
+    el.textContent = cents === undefined ? '' : fmtSplit(cents);
+  }
+
+  const el = document.getElementById('f-weight-total');
+  if (!el) return;
+  if (isPercent) {
+    const ok = total === TOTAL_BP;
+    el.className = `split-remaining ${ok ? 'ok' : 'bad'}`;
+    el.textContent = ok ? '\u2713 Adds up to 100%' : `Currently ${(total / 100).toFixed(2)}% \u2014 must be 100%`;
+  } else {
+    const problem = sharesError(f.weights, ids);
+    el.className = `split-remaining ${problem ? 'bad' : 'ok'}`;
+    el.textContent = problem ?? `${total} share${total === 1 ? '' : 's'} in total`;
+  }
+}
+
 function updateCustomRemaining() {
   const amountCents  = getAmountCents();
   const splitMembers = [...f.splitAmong];
@@ -1251,6 +1663,11 @@ function validateForm() {
     );
     valid = validateCustomSplits(amountCents, customCents);
   }
+  if (valid && f.splitType === 'shares')  valid = validateShares(f.weights, splitMembers);
+  if (valid && f.splitType === 'percent') {
+    valid = validateCategoryPercents(
+      splitMembers.map(id => ({ member_id: id, percent_bp: f.weights[id] ?? 0 })));
+  }
   btn.disabled = !valid;
 }
 
@@ -1264,8 +1681,13 @@ window._submitExpense = async function() {
     ? Object.fromEntries(splitMembers.map(id => [id, Math.round((parseFloat(f.custom[id] || '0') || 0) * 100)]))
     : {};
 
-  const { splits: splitResult } = computeSplitsWithCategory(
-    amountCents, splitMembers, f.splitType, customCents, categorySplits, f.category);
+  // The SOURCE, not f.splitType: leaving the form on Equal over a category
+  // that carries a saved 70/30 rule produces a 70/30 split, and storing
+  // "equal" against it makes the detail row and the exported ledger both
+  // say something the numbers underneath contradict. That is exactly the
+  // "why is this $80" question this app exists to answer.
+  const { splits: splitResult, source: splitSource } = computeSplitsWithCategory(
+    amountCents, splitMembers, f.splitType, customCents, categorySplits, f.category, f.weights);
 
   const btn = document.getElementById('f-save-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -1276,7 +1698,7 @@ window._submitExpense = async function() {
   const receiptFileId = f.receiptFileId ?? null;
   const newExp = {
     id: expId, paid_by: f.paidBy, amount_cents: amountCents,
-    description, category: f.category, date, split_type: f.splitType, created_at: now,
+    description, category: f.category, date, split_type: splitSource, created_at: now,
     receipt_file_id: receiptFileId,
   };
   const newSplits = splitResult.map(s => ({
@@ -1295,7 +1717,7 @@ window._submitExpense = async function() {
   try {
     await db(
       'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id) VALUES (?,?,?,?,?,?,?,?,?)',
-      [expId, f.paidBy, amountCents, description, f.category, date, f.splitType, now, receiptFileId]
+      [expId, f.paidBy, amountCents, description, f.category, date, splitSource, now, receiptFileId]
     );
     if (newSplits.length > 0) {
       const placeholders = newSplits.map(() => '(?,?,?,?)').join(',');
@@ -1353,6 +1775,10 @@ function openDetailModal(expId) {
       <div class="detail-row">
         <span class="detail-key">Category</span>
         <span class="detail-val">${cat.icon} ${esc(cat.label)}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-key">Split</span>
+        <span class="detail-val">${esc(splitTypeLabel(exp.split_type))}</span>
       </div>
 
       ${exp.receipt_file_id ? `
@@ -1461,14 +1887,28 @@ window._openSettle = function(fromId, toId, suggestedCents) {
       <div class="amount-wrap" style="margin-bottom:0">
         <span class="amount-symbol">$</span>
         <input type="number" id="s-amount" class="amount-input" value="${esc(dollars)}"
-               min="0.01" step="0.01">
+               min="0.01" step="0.01" data-input="settleAmount">
       </div>
+      ${fromId === ME.id ? `<div id="s-pay" style="margin-top:16px">${payBlock(toId, suggestedCents)}</div>` : ''}
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
       <button class="btn btn-primary" data-action="submitSettlement" data-from="${esc(fromId)}" data-to="${esc(toId)}">Record Payment</button>
     </div>
   `);
+};
+
+// The prefilled amount is a suggestion the member can overtype, so the link
+// has to follow it. Rebuilding only the href keeps the element (and any
+// in-flight tap on it) alive; re-rendering the block on every keystroke would
+// replace the anchor mid-interaction.
+window._onSettleAmount = function(toId) {
+  const el = document.querySelector('#s-pay [data-pay-link]');
+  const saved = handles.get(toId);
+  if (!el || !saved) return;
+  const val = parseFloat(document.getElementById('s-amount')?.value || '0');
+  const url = payLink(saved.service, saved.handle, Math.round((val || 0) * 100));
+  if (url) el.setAttribute('href', url);
 };
 
 window._submitSettlement = async function(fromId, toId) {
@@ -1588,15 +2028,26 @@ window._saveSplitRule = async function() {
   try {
     // Replace the whole rule for this category — a partial update could leave
     // orphan rows that no longer sum to 100% and silently disable the rule.
-    await db('DELETE FROM app_expense_splitter__category_splits WHERE category = ?', [cat]);
+    //
+    // One atomic batch, not two calls. As two, a DELETE that succeeded and an
+    // INSERT that failed DELETED the rule the member was editing: the toast
+    // said the save had failed, which is true and reads as "nothing changed",
+    // and every later expense in that category quietly went back to an even
+    // split. splitPercentsForCategory cannot tell a rule that was never set
+    // from one that was just destroyed, so nothing downstream reports it
+    // either. Same shape as _savePayHandle, for the same reason.
+    const statements = [{
+      sql: 'DELETE FROM app_expense_splitter__category_splits WHERE category = ?',
+      params: [cat],
+    }];
     if (rows.length) {
       const placeholders = rows.map(() => '(?,?,?,?,?)').join(',');
-      const params = rows.flatMap(r => [crypto.randomUUID(), cat, r.member_id, r.percent_bp, now]);
-      await db(
-        `INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES ${placeholders}`,
-        params
-      );
+      statements.push({
+        sql: `INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES ${placeholders}`,
+        params: rows.flatMap(r => [crypto.randomUUID(), cat, r.member_id, r.percent_bp, now]),
+      });
     }
+    await dbBatch(statements);
     await loadData();
     closeModal();
     toast(`Split rule saved for ${categoryFor(cat).label}`, 'success');
@@ -1605,6 +2056,118 @@ window._saveSplitRule = async function() {
     toast(`Could not save rule: ${e.message}`, 'error');
   }
 };
+
+/* ── Where to send the money ─────────────────────────── */
+// A handle is stored once and read by everybody, because the person who has to
+// pay is the one who needs it. Writes are pinned to the owner by
+// manifest.row_policies.payment_handles.column_write_acls, so this UI offering
+// only your own row is a convenience, not the enforcement.
+
+window._openPayHandle = function() {
+  const mine = handles.get(ME.id);
+  openModal(`
+    <div class="modal-header">
+      <h2 class="modal-title">How to pay me</h2>
+      <button class="modal-close" data-action="closeModal">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span>Service</span>
+        <select id="ph-service" data-change="handleService">
+          ${PAYMENT_SERVICES.map(sv =>
+            `<option value="${esc(sv.id)}"${mine?.service === sv.id ? ' selected' : ''}>${esc(sv.label)}</option>`
+          ).join('')}
+        </select>
+      </label>
+      <label class="field"><span>Username</span>
+        <input type="text" id="ph-handle" maxlength="64" autocomplete="off"
+               value="${esc(mine?.handle ?? '')}" data-autofocus>
+      </label>
+      <p class="hint" id="ph-hint"></p>
+      <p class="hint" style="margin-top:10px">Everyone here can see this so they
+        know where to send what they owe you. Only you can change it.</p>
+    </div>
+    <div class="modal-footer">
+      ${mine ? `<button class="btn btn-ghost" data-action="clearPayHandle">Remove</button>` : ''}
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" id="ph-save" data-action="savePayHandle">Save</button>
+    </div>
+  `);
+  window._onHandleService();
+  requestAnimationFrame(() => modalEl?.querySelector('[data-autofocus]')?.focus());
+};
+
+window._onHandleService = function() {
+  const sv = paymentServiceFor(document.getElementById('ph-service')?.value);
+  const hint = document.getElementById('ph-hint');
+  if (hint) hint.textContent = sv.hint;
+};
+
+window._savePayHandle = async function() {
+  const service = document.getElementById('ph-service')?.value;
+  const raw     = document.getElementById('ph-handle')?.value ?? '';
+  const check   = validateHandle(service, raw);
+  if (!check.ok) { toast(check.error, 'error'); return; }
+
+  const btn = document.getElementById('ph-save');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const now = new Date().toISOString();
+  try {
+    // Replace rather than upsert: an ON CONFLICT tail on a table carrying
+    // column write ACLs is refused, and the unique index on member_id means a
+    // plain INSERT after the delete can only ever leave one row standing.
+    //
+    // One atomic batch, not two calls. As two, a DELETE that succeeded and an
+    // INSERT that failed left the member with NO handle while the toast told
+    // them the save had failed — so the next person to settle up saw nothing
+    // and the member had no reason to look.
+    await dbBatch([
+      { sql: 'DELETE FROM app_expense_splitter__payment_handles WHERE member_id = ?', params: [ME.id] },
+      { sql: 'INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?,?,?,?,?)',
+        params: [crypto.randomUUID(), ME.id, service, check.handle, now] },
+    ]);
+    await loadData();
+    closeModal();
+    renderAll();
+    toast('Saved', 'success');
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    toast(`Could not save: ${e.message}`, 'error');
+  }
+};
+
+window._clearPayHandle = async function() {
+  try {
+    await db('DELETE FROM app_expense_splitter__payment_handles WHERE member_id = ?', [ME.id]);
+    await loadData();
+    closeModal();
+    renderAll();
+    toast('Removed', 'success');
+  } catch (e) {
+    toast(`Could not remove: ${e.message}`, 'error');
+  }
+};
+
+/**
+ * The "pay them now" block for one recipient, or '' when there is nothing
+ * useful to show. Zelle and "other" have no web hand-off, so those print the
+ * handle to copy instead of a link that would go nowhere.
+ */
+function payBlock(recipientId, amountCents, note = '') {
+  const saved = handles.get(recipientId);
+  if (!saved) return '';
+  const name = memberName(recipientId);
+  const url  = payLink(saved.service, saved.handle, amountCents, note);
+  const shown = displayHandle(saved.service, saved.handle);
+  const label = paymentServiceFor(saved.service).label;
+  if (!url) {
+    return `<p class="pay-note">${esc(name)} takes ${esc(label)} at <strong>${esc(shown)}</strong>.</p>`;
+  }
+  return `
+    <p class="pay-note" style="margin-bottom:8px">${esc(name)} takes ${esc(label)} at <strong>${esc(shown)}</strong>.</p>
+    <a class="pay-link" data-pay-link data-testid="pay-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">
+      Pay with ${esc(label)} ↗
+    </a>`;
+}
 
 /* ── Reimbursement request actions ───────────────────── */
 
