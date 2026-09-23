@@ -262,7 +262,7 @@
     {
       "name": "picking shares reweights the split without touching the amount",
       "members": {
-        "a": "adult",
+        "a": "admin",
         "b": "adult"
       },
       "steps": [
@@ -441,7 +441,7 @@
     {
       "name": "a percent split shows no per-member amount until the rule totals 100%",
       "members": {
-        "a": "adult",
+        "a": "admin",
         "b": "adult"
       },
       "steps": [
@@ -512,7 +512,7 @@
     {
       "name": "an expense split by a saved category rule says so, rather than claiming it was equal",
       "members": {
-        "a": "adult",
+        "a": "admin",
         "b": "adult"
       },
       "steps": [
@@ -594,7 +594,7 @@
     {
       "name": "saving a split rule writes it in one go and the next expense uses it",
       "members": {
-        "a": "adult",
+        "a": "admin",
         "b": "adult"
       },
       "steps": [
@@ -621,7 +621,7 @@
         {
           "action": "fill",
           "as": "a",
-          "selector": "#sr-rows input:first-of-type",
+          "selector": "#sr-rows label:nth-child(1) input",
           "value": "70"
         },
         {

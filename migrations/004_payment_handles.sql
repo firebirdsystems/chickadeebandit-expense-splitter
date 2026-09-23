@@ -13,21 +13,34 @@
 -- READS ARE OPEN ON PURPOSE. The whole point is that the person who OWES you
 -- can see where to send it, and in a shared space `adults_bypass` resolves to
 -- the steward alone (see policy-roles.ts), so an owner_only table would have
--- hidden a co-parent's handle from the co-parent who has to pay it. The
--- manifest instead pairs `member_writable` with `column_write_acls`, which pins
--- every writable column to its owner: an INSERT must carry the caller's own
--- member_id, and an UPDATE is rewritten with an owner-equality WHERE guard.
+-- hidden a co-parent's handle from the co-parent who has to pay it.
 --
--- The one gap that leaves is DELETE, which column ACLs do not cover — any
--- member can drop another member's row through a hand-written /api/db call.
--- That is a nuisance (the owner re-enters it), not a redirection: nobody can
--- write a handle into somebody else's name, which is the failure that would
--- actually move money to the wrong person.
+-- The manifest instead pairs `owner_or_visibility` with `write_owner_only`, which is
+-- the only shape that gets both halves. Reads: own rows always, plus every row
+-- whose `visibility` is in `everyone_values` — and the app writes 'everyone' on
+-- every row, so in practice the whole table, which is the point. Writes: INSERT
+-- has member_id FORCED to the caller, and UPDATE and DELETE are both rewritten
+-- with an owner-equality guard, with no supervisor bypass.
+--
+-- `member_writable` + `column_write_acls` was the first attempt and covered one
+-- statement short: column ACLs are a no-op on DELETE by construction (see
+-- enforceColumnWriteAcls, which returns early for anything but insert/update),
+-- so any member could drop another member's row through a hand-written /api/db
+-- call. Nobody could redirect a payment — the ACLs did stop a handle being
+-- written in someone else's name — but they could keep deleting yours, and the
+-- settle-up screen has no link while the row is missing. The UI promises "Only
+-- you can change it"; this is the policy that makes that true.
 CREATE TABLE IF NOT EXISTS app_expense_splitter__payment_handles (
   id         TEXT NOT NULL PRIMARY KEY,
   member_id  TEXT NOT NULL,
   service    TEXT NOT NULL,
   handle     TEXT NOT NULL,
+  -- Carries the read rule for owner_or_visibility. Constant 'everyone' today —
+  -- the column exists because the policy kind needs one, not because a handle
+  -- has ever been meant to be private. `visibility` is a built-in plaintext
+  -- column name, so the IN (...) the policy appends is a real comparison rather
+  -- than one against AES ciphertext that would match nothing.
+  visibility TEXT NOT NULL DEFAULT 'everyone',
   updated_at TEXT NOT NULL
 );
 

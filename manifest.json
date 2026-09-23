@@ -85,29 +85,15 @@
       "read": "adult"
     },
     "payment_handles": {
-      "kind": "member_writable",
+      "kind": "owner_or_visibility",
+      "member_column": "member_id",
+      "visibility_column": "visibility",
+      "everyone_values": [
+        "everyone"
+      ],
+      "write_owner_only": true,
       "audit_writes": true,
-      "max_rows": 200,
-      "column_write_acls": {
-        "member_id": {
-          "writable_by": [
-            "owner"
-          ],
-          "owner_column": "member_id"
-        },
-        "service": {
-          "writable_by": [
-            "owner"
-          ],
-          "owner_column": "member_id"
-        },
-        "handle": {
-          "writable_by": [
-            "owner"
-          ],
-          "owner_column": "member_id"
-        }
-      }
+      "max_rows": 200
     }
   },
   "delete_file_columns": {
@@ -357,15 +343,15 @@
       {
         "id": "reimbursement_record",
         "title": "Countersigned reimbursements",
-        "description": "Reimbursement requests you are a party to, and the terms both sides signed off on. The agreed amount and note are the snapshot taken at the moment of lock, so a later edit of the request cannot rewrite them; they are blank while a request is still pending.",
+        "description": "Reimbursement requests you are a party to, and the terms both sides signed off on. Status and date are the EFFECTIVE ones: countersigning writes only the agreement row, so a locked request still carries 'pending' and its original timestamp on the request itself — reporting those raw would export a signed agreement as pending and drop it from the period it was actually signed in. A cancelled or settled request keeps that terminal state, matching reimbursementStatus() in the app. The agreed amount and note are the snapshot taken at the moment of lock, so a later edit of the request cannot rewrite them; they are blank while a request is still pending.",
         "source": {
           "kind": "sql",
-          "query": "SELECT r.updated_at AS updated_at, g.locked_at AS locked_at, r.requester_id AS requester_id, r.payer_id AS payer_id, g.amount_cents AS agreed_cents, g.note AS agreed_note, r.status AS status FROM app_expense_splitter__reimbursements r LEFT JOIN app_expense_splitter__reimbursement_agreements g ON g.id = r.id WHERE substr(r.updated_at, 1, 10) >= :range_start AND substr(r.updated_at, 1, 10) <= :range_end ORDER BY r.updated_at"
+          "query": "SELECT CASE WHEN g.locked_at IS NOT NULL AND g.locked_at > r.updated_at THEN g.locked_at ELSE r.updated_at END AS updated_at, g.locked_at AS locked_at, r.requester_id AS requester_id, r.payer_id AS payer_id, g.amount_cents AS agreed_cents, g.note AS agreed_note, CASE WHEN r.status = 'cancelled' THEN 'cancelled' WHEN r.status = 'settled' THEN 'settled' WHEN g.status = 'locked' THEN 'locked' ELSE 'pending' END AS status FROM app_expense_splitter__reimbursements r LEFT JOIN app_expense_splitter__reimbursement_agreements g ON g.id = r.id WHERE substr(CASE WHEN g.locked_at IS NOT NULL AND g.locked_at > r.updated_at THEN g.locked_at ELSE r.updated_at END, 1, 10) >= :range_start AND substr(CASE WHEN g.locked_at IS NOT NULL AND g.locked_at > r.updated_at THEN g.locked_at ELSE r.updated_at END, 1, 10) <= :range_end ORDER BY CASE WHEN g.locked_at IS NOT NULL AND g.locked_at > r.updated_at THEN g.locked_at ELSE r.updated_at END"
         },
         "columns": [
           {
             "key": "updated_at",
-            "label": "Updated",
+            "label": "Last activity",
             "format": "datetime"
           },
           {

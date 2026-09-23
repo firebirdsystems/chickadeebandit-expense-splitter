@@ -713,13 +713,23 @@ async function init() {
   }
 
   try {
-    // The view list is not needed to render anything above the fold, so a slow
-    // or failing reports endpoint must not hold up the app; loadReportViews
-    // swallows its own errors and leaves the Export block unrendered.
-    await Promise.all([loadMembers(), loadData(), loadReportViews()]);
+    // Members and data are what the first screen is made of; the report view
+    // list is not. It is NOT in this await for that reason — swallowing its
+    // errors was never enough, because a reports endpoint that HANGS rather
+    // than fails never rejects, and Promise.all waits for it either way. The
+    // whole app sat on its skeleton behind an optional list nothing above the
+    // fold needs.
+    await Promise.all([loadMembers(), loadData()]);
     recompute();
     showMain();
     renderAll();
+
+    // Started after the first paint and never awaited: it repaints the one
+    // block it feeds when it arrives, or leaves it empty for ever if it does
+    // not. loadReportViews resolves on every path it can take, so the only way
+    // this rejects is renderExportBlock itself — caught, because an unhandled
+    // rejection here is a console error on a screen that is already correct.
+    loadReportViews().then(renderExportBlock).catch(() => {});
 
     const expenseId = params.get('expenseId');
     if (expenseId) {
@@ -760,7 +770,16 @@ async function loadData() {
     db('SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC'),
     db('SELECT * FROM app_expense_splitter__category_splits').catch(() => ({ rows: [] })),
     db('SELECT * FROM app_expense_splitter__reimbursements ORDER BY created_at DESC').catch(() => ({ rows: [] })),
-    db('SELECT * FROM app_expense_splitter__reimbursement_agreements').catch(() => ({ rows: [] })),
+    // NOT issued at all for a non-adult. The table is endpoint_only with
+    // read:"adult", so a child's request is refused — and while the .catch
+    // below would swallow the rejection, the BROWSER still records the failed
+    // request as a console error before any JS sees it. That is a 403 on every
+    // child's launch: noise in the app's own error reporting, and a real
+    // failure in the e2e error collector, for a read whose answer is known to
+    // be "none of them" before it is sent.
+    IS_ADULT
+      ? db('SELECT * FROM app_expense_splitter__reimbursement_agreements').catch(() => ({ rows: [] }))
+      : Promise.resolve({ rows: [] }),
     db('SELECT * FROM app_expense_splitter__payment_handles').catch(() => ({ rows: [] })),
   ]);
   expenses       = eRes.rows;
@@ -2059,8 +2078,9 @@ window._saveSplitRule = async function() {
 
 /* ── Where to send the money ─────────────────────────── */
 // A handle is stored once and read by everybody, because the person who has to
-// pay is the one who needs it. Writes are pinned to the owner by
-// manifest.row_policies.payment_handles.column_write_acls, so this UI offering
+// pay is the one who needs it. Every write is pinned to the owner by
+// manifest.row_policies.payment_handles (owner_or_visibility with
+// write_owner_only) — INSERT, UPDATE and DELETE alike — so this UI offering
 // only your own row is a convenience, not the enforcement.
 
 window._openPayHandle = function() {
@@ -2112,18 +2132,23 @@ window._savePayHandle = async function() {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   const now = new Date().toISOString();
   try {
-    // Replace rather than upsert: an ON CONFLICT tail on a table carrying
-    // column write ACLs is refused, and the unique index on member_id means a
-    // plain INSERT after the delete can only ever leave one row standing.
+    // Replace rather than upsert: the unique index on member_id means a plain
+    // INSERT after the delete can only ever leave one row standing, and the
+    // policy rewrites both statements with the same owner guard, so neither
+    // half can reach anybody else's row even if this id were tampered with.
     //
     // One atomic batch, not two calls. As two, a DELETE that succeeded and an
     // INSERT that failed left the member with NO handle while the toast told
     // them the save had failed — so the next person to settle up saw nothing
     // and the member had no reason to look.
+    //
+    // `visibility` is written explicitly rather than left to the column
+    // default: it is what owner_or_visibility reads the row through, and a
+    // handle nobody but its owner can see is a handle nobody can pay.
     await dbBatch([
       { sql: 'DELETE FROM app_expense_splitter__payment_handles WHERE member_id = ?', params: [ME.id] },
-      { sql: 'INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?,?,?,?,?)',
-        params: [crypto.randomUUID(), ME.id, service, check.handle, now] },
+      { sql: 'INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, visibility, updated_at) VALUES (?,?,?,?,?,?)',
+        params: [crypto.randomUUID(), ME.id, service, check.handle, 'everyone', now] },
     ]);
     await loadData();
     closeModal();

@@ -282,7 +282,7 @@
       ]
     },
     {
-      "name": "a member cannot save a payment handle in somebody else's name",
+      "name": "a forged payment handle is rewritten into the forger's own name, never the victim's",
       "members": {
         "attacker": "adult",
         "victim": "adult"
@@ -300,16 +300,31 @@
             "2026-09-22T10:00:00Z"
           ],
           "expect": {
-            "status": 403
+            "status": 200
           }
         },
         {
           "action": "db",
           "as": "victim",
-          "sql": "SELECT id FROM app_expense_splitter__payment_handles",
+          "sql": "SELECT id FROM app_expense_splitter__payment_handles WHERE member_id = ?",
+          "params": [
+            "{{victim}}"
+          ],
           "expect": {
             "status": 200,
             "rowCount": 0
+          }
+        },
+        {
+          "action": "db",
+          "as": "attacker",
+          "sql": "SELECT id FROM app_expense_splitter__payment_handles WHERE id = 'ph-forged' AND member_id = ?",
+          "params": [
+            "{{attacker}}"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1
           }
         }
       ]
@@ -398,7 +413,7 @@
       ]
     },
     {
-      "name": "a child cannot save a payment handle for an adult either",
+      "name": "a child's forged payment handle is rewritten the same way",
       "members": {
         "kid": "child",
         "adult": "adult"
@@ -416,22 +431,107 @@
             "2026-09-22T10:00:00Z"
           ],
           "expect": {
-            "status": 403
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "adult",
+          "sql": "SELECT id FROM app_expense_splitter__payment_handles WHERE member_id = ?",
+          "params": [
+            "{{adult}}"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 0
           }
         },
         {
           "action": "db",
           "as": "kid",
+          "sql": "SELECT id FROM app_expense_splitter__payment_handles WHERE id = 'ph-k' AND member_id = ?",
+          "params": [
+            "{{kid}}"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "a member cannot delete somebody else's payment handle",
+      "members": {
+        "victim": "adult",
+        "attacker": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
           "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?, ?, ?, ?, ?)",
           "params": [
-            "ph-k2",
-            "{{kid}}",
+            "ph-v",
+            "{{victim}}",
             "venmo",
-            "kid-own",
+            "victim-handle",
             "2026-09-22T10:00:00Z"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, updated_at) VALUES (?, ?, ?, ?, ?)",
+          "params": [
+            "ph-a",
+            "{{attacker}}",
+            "venmo",
+            "attacker-own",
+            "2026-09-22T10:00:00Z"
+          ]
+        },
+        {
+          "action": "db",
+          "as": "attacker",
+          "sql": "DELETE FROM app_expense_splitter__payment_handles WHERE id = ?",
+          "params": [
+            "ph-v"
           ],
           "expect": {
             "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "victim",
+          "sql": "SELECT handle FROM app_expense_splitter__payment_handles WHERE id = 'ph-v'",
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "handle": "victim-handle"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "attacker",
+          "sql": "DELETE FROM app_expense_splitter__payment_handles WHERE id = ?",
+          "params": [
+            "ph-a"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "attacker",
+          "sql": "SELECT id FROM app_expense_splitter__payment_handles WHERE id = 'ph-a'",
+          "expect": {
+            "status": 200,
+            "rowCount": 0
           }
         }
       ]

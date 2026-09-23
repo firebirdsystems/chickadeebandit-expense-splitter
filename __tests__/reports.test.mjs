@@ -38,9 +38,27 @@ const views = manifest.reports?.views ?? [];
 const prefix = `app_${manifest.id.replace(/-/g, "_")}__`;
 /** Output aliases the query produces — every `AS name`. */
 const aliasesOf = (q) => new Set([...q.matchAll(/\bAS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)].map((x) => x[1]));
-/** Bare column names in a clause, with any table qualifier dropped. */
+/**
+ * Keywords and functions that look like bare column names to a regex.
+ *
+ * The hub parses these clauses; this file matches them, so every word that can
+ * stand where a column stands has to be named here or it gets checked for
+ * encryption and fails. A CASE expression is the case that forced the list:
+ * `CASE WHEN g.locked_at > r.updated_at THEN ...` offers WHEN, THEN, ELSE and
+ * END as "columns", none of which are in db_plaintext_columns.
+ */
+const SQL_WORDS = new Set([
+  "CASE", "WHEN", "THEN", "ELSE", "END", "IS", "NOT", "NULL", "AND", "OR",
+  "ASC", "DESC", "SUBSTR", "DATE", "COALESCE", "CAST", "AS",
+]);
+
+/** Bare column names in a clause: table qualifiers and string literals
+ *  dropped, keywords filtered out. */
 const columnsIn = (clause) =>
-  [...clause.matchAll(/\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\b/g)].map((x) => x[1]);
+  [...clause.replace(/'(?:[^']|'')*'/g, "''")
+    .matchAll(/\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\b/g)]
+    .map((x) => x[1])
+    .filter((c) => !SQL_WORDS.has(c.toUpperCase()));
 
 describe("manifest.reports stays inside the hub's ceilings", () => {
   it("declares at least one view and no more than the cap", () => {
@@ -106,7 +124,6 @@ describe.each(views.map((v) => [v.id, v]))("reports.%s", (id, view) => {
     for (const clause of where.split(/\bAND\b|\bOR\b/i)) {
       if (!/:range_(start|end)\b/.test(clause)) continue;
       for (const col of columnsIn(clause.replace(/:range_(start|end)\b/g, ""))) {
-        if (["substr", "date", "AND", "OR"].includes(col)) continue;
         expect(isPlaintext(col), `${id} ranges over encrypted column "${col}"`).toBe(true);
       }
     }
@@ -122,7 +139,6 @@ describe.each(views.map((v) => [v.id, v]))("reports.%s", (id, view) => {
         .map((x) => [x[3], x[2]]),
     );
     for (const col of columnsIn(orderBy)) {
-      if (["ASC", "DESC", "substr"].includes(col.toUpperCase?.() ? col.toUpperCase() : col)) continue;
       const resolved = sources.get(col) ?? col;
       expect(isPlaintext(resolved), `${id} orders by encrypted column "${resolved}"`).toBe(true);
     }
@@ -150,5 +166,34 @@ describe("the app surfaces the views it declares", () => {
     for (const v of views) {
       expect(html.includes(`"${v.id}"`), `${v.id} is hard-coded into the UI`).toBe(false);
     }
+  });
+});
+
+describe("the reimbursement record reports effective status and date", () => {
+  const view = views.find((v) => v.id === "reimbursement_record");
+  const q = view.source.query;
+
+  // Countersigning goes through /api/agree, which writes the AGREEMENT row and
+  // never touches the request. So `r.status` stays 'pending' and `r.updated_at`
+  // stays at creation time for a request both parties have signed. Reporting
+  // those raw exported a signed agreement as pending, and dropped it from the
+  // period it was actually signed in because its request timestamp was older.
+  it("derives status the way reimbursementStatus() does", () => {
+    // Terminal request states win; otherwise the agreement's lock decides.
+    expect(q).toMatch(
+      /CASE WHEN r\.status = 'cancelled' THEN 'cancelled' WHEN r\.status = 'settled' THEN 'settled' WHEN g\.status = 'locked' THEN 'locked' ELSE 'pending' END AS status/,
+    );
+    expect(q).not.toMatch(/\br\.status AS status\b/);
+  });
+
+  it("ranges and sorts on the later of the request and the lock", () => {
+    const eff = /CASE WHEN g\.locked_at IS NOT NULL AND g\.locked_at > r\.updated_at THEN g\.locked_at ELSE r\.updated_at END/;
+    // Both range bounds and the sort, not just the displayed column — a row
+    // filtered out by the WHERE never reaches the reader to be mislabelled.
+    expect(q.match(new RegExp(eff.source, "g")) ?? []).toHaveLength(4);
+    expect(q).toMatch(new RegExp(`WHERE substr\\(${eff.source}, 1, 10\\) >= :range_start`));
+    expect(q).toMatch(new RegExp(`AND substr\\(${eff.source}, 1, 10\\) <= :range_end`));
+    expect(q).toMatch(new RegExp(`ORDER BY ${eff.source}$`));
+    expect(q).not.toMatch(/substr\(r\.updated_at, 1, 10\)/);
   });
 });

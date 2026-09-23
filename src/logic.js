@@ -211,6 +211,26 @@ export function validateShares(weights, memberIds) {
 export const TOTAL_BP = 10000;
 
 /**
+ * A stored basis-point value as a number, or NaN when it is not one.
+ *
+ * `Number()` alone is too generous for a value coming back out of the database:
+ * it reads null, undefined-shaped blanks and '' as a confident 0, so a row with
+ * no percentage at all becomes a deliberate 0% and the rule around it validates.
+ * Blank means "no answer", which is not the same as "no share", and the
+ * difference decides whether a saved rule applies to somebody's money or the
+ * app falls back to an even split.
+ *
+ * Strings that do hold a number still convert, because whether D1 hands back a
+ * number or its text depends on how the row was written, and a rule that worked
+ * yesterday must not stop applying over that.
+ */
+export function toBasisPoints(value) {
+  if (value === null || value === undefined) return NaN;
+  if (typeof value === 'string' && value.trim() === '') return NaN;
+  return Number(value);
+}
+
+/**
  * Basis points per member for a category, from saved category_splits rows.
  * Returns null when the category has no saved default (caller falls back to an
  * even split) or when the saved rows don't cover exactly `memberIds`, which
@@ -221,16 +241,28 @@ export function splitPercentsForCategory(categorySplits, category, memberIds) {
   const rows = (categorySplits ?? []).filter(r => r.category === category);
   if (rows.length === 0) return null;
 
+  // `Number(x) || 0` here USED to turn every unparseable value into a clean
+  // zero, which then sailed through the validator: a rule of "not-a-number" and
+  // 10000 read as 0% / 100% and was applied to real expenses. Keep the raw
+  // conversion — NaN included — and let the validator reject it.
   const byMember = new Map();
-  for (const r of rows) byMember.set(r.member_id, Number(r.percent_bp) || 0);
+  for (const r of rows) byMember.set(r.member_id, toBasisPoints(r.percent_bp));
 
   if (byMember.size !== memberIds.length) return null;
   if (!memberIds.every(id => byMember.has(id))) return null;
 
-  const total = memberIds.reduce((s, id) => s + byMember.get(id), 0);
-  if (total !== TOTAL_BP) return null;
+  const percents = memberIds.map(id => ({ member_id: id, percent_bp: byMember.get(id) }));
 
-  return memberIds.map(id => ({ member_id: id, percent_bp: byMember.get(id) }));
+  // The SAME validator the form runs, not just a total. A stored -5000/15000
+  // pair sums to exactly 10000 and passes a total check, then apportions a
+  // NEGATIVE share — a credit nobody granted, landing straight in the balances.
+  // These rows come back from the database, where any adult can write one by
+  // hand through /api/db, so the rule the form enforces on the way in has to
+  // hold again on the way out. A rule that fails it is treated the way a stale
+  // partial rule already is: null, and the caller falls back to an even split.
+  if (!validateCategoryPercents(percents)) return null;
+
+  return percents;
 }
 
 /**
@@ -334,8 +366,13 @@ export function computeSplitsWithCategory(
  */
 export function validateCategoryPercents(percents) {
   const rows = percents ?? [];
-  if (rows.some(p => !Number.isFinite(Number(p.percent_bp)) || Number(p.percent_bp) < 0)) return false;
-  return rows.reduce((s, p) => s + (Number(p.percent_bp) || 0), 0) === TOTAL_BP;
+  // Integer, not merely finite. Basis points are whole by definition (10000 =
+  // 100%), and a fractional one is either a bug upstream or a hand-written row
+  // — both of which apportion pennies nobody can account for.
+  if (rows.some(p => !Number.isInteger(toBasisPoints(p.percent_bp)) || toBasisPoints(p.percent_bp) < 0)) {
+    return false;
+  }
+  return rows.reduce((s, p) => s + toBasisPoints(p.percent_bp), 0) === TOTAL_BP;
 }
 
 // ── Reimbursement requests ──────────────────────────────────────────────────
@@ -531,21 +568,42 @@ export function summarize(expenses, splits, range = {}) {
 // tab hands off to the installed app on a phone and to the website everywhere
 // else, while a custom scheme is a dead click on a laptop.
 
+/**
+ * `url_handle` splits the list in two, and everything downstream reads it
+ * rather than re-listing the services:
+ *
+ *  - TRUE — the handle becomes a path segment in a real URL (payLink builds
+ *    one), so it has to survive being put there: no slash, no colon, no space,
+ *    nothing that could change which host is addressed.
+ *  - FALSE — there is no link to build. Zelle is bank-by-bank and 'other' is
+ *    whatever the two of them agreed, so the handle is only ever shown to a
+ *    person to read. Holding those to URL-path rules rejected the exact values
+ *    the hints ask for: a Zelle phone number ('+1 (555) 123-4567' has spaces
+ *    and parentheses) and an answer like 'Cash or check'.
+ */
 export const PAYMENT_SERVICES = [
-  { id: 'venmo',   label: 'Venmo',    display_prefix: '@', hint: 'Your Venmo username, without the @' },
-  { id: 'paypal',  label: 'PayPal',   display_prefix: '',  hint: 'Your PayPal.Me name' },
-  { id: 'cashapp', label: 'Cash App', display_prefix: '$', hint: 'Your Cashtag, without the $' },
-  { id: 'zelle',   label: 'Zelle',    display_prefix: '',  hint: 'The phone number or email on your Zelle' },
-  { id: 'other',   label: 'Other',    display_prefix: '',  hint: 'However you want to be paid' },
+  { id: 'venmo',   label: 'Venmo',    display_prefix: '@', url_handle: true,  hint: 'Your Venmo username, without the @' },
+  { id: 'paypal',  label: 'PayPal',   display_prefix: '',  url_handle: true,  hint: 'Your PayPal.Me name' },
+  { id: 'cashapp', label: 'Cash App', display_prefix: '$', url_handle: true,  hint: 'Your Cashtag, without the $' },
+  { id: 'zelle',   label: 'Zelle',    display_prefix: '',  url_handle: false, hint: 'The phone number or email on your Zelle' },
+  { id: 'other',   label: 'Other',    display_prefix: '',  url_handle: false, hint: 'However you want to be paid' },
 ];
 
 export function paymentServiceFor(id) {
   return PAYMENT_SERVICES.find(s => s.id === id) ?? PAYMENT_SERVICES[PAYMENT_SERVICES.length - 1];
 }
 
-/** Strips the sigil people type out of habit, so '@sam' and 'sam' save alike. */
-export function normalizeHandle(raw) {
-  return String(raw ?? '').trim().replace(/^[@$]+/, '');
+/**
+ * Strips the sigil people type out of habit, so '@sam' and 'sam' save alike.
+ *
+ * Only for a username. Pass the service and a free-text handle keeps its
+ * leading character, because '$20 in cash' is an answer, not a Cashtag with a
+ * stray dollar on it.
+ */
+export function normalizeHandle(raw, service) {
+  const text = String(raw ?? '').trim();
+  if (service !== undefined && !paymentServiceFor(service).url_handle) return text;
+  return text.replace(/^[@$]+/, '');
 }
 
 /** A handle safe to put in a URL path. Deliberately narrow: no slash, no colon,
@@ -557,21 +615,41 @@ const HANDLE_RE = /^[A-Za-z0-9._@+-]{1,64}$/;
  *  are path noise, not usernames. */
 const HANDLE_HAS_NAME_RE = /[A-Za-z0-9]/;
 
+/** A free-text handle is read by a person, not parsed, so the only limits are
+ *  a length the settle-up card can show and the absence of control characters,
+ *  which no keyboard produces and which would render as nothing. */
+export const FREE_TEXT_HANDLE_MAX = 64;
+const CONTROL_RE = /[\u0000-\u001F\u007F]/;
+
 export function validateHandle(service, raw) {
-  const handle = normalizeHandle(raw);
-  if (!handle) return { ok: false, error: 'Enter your username.' };
-  if (!HANDLE_RE.test(handle) || !HANDLE_HAS_NAME_RE.test(handle)) {
-    return { ok: false, error: 'Use letters, numbers and . _ - + @ only.' };
-  }
+  // Checked FIRST: the service decides which rules the handle is held to, so
+  // an unknown one cannot be reported as a bad username.
   if (!PAYMENT_SERVICES.some(s => s.id === service)) {
     return { ok: false, error: 'Choose a payment service.' };
+  }
+  const handle = normalizeHandle(raw, service);
+  if (!handle) return { ok: false, error: 'Enter your username.' };
+  if (!HANDLE_HAS_NAME_RE.test(handle)) {
+    return { ok: false, error: 'That needs at least one letter or number.' };
+  }
+  if (paymentServiceFor(service).url_handle) {
+    if (!HANDLE_RE.test(handle)) {
+      return { ok: false, error: 'Use letters, numbers and . _ - + @ only.' };
+    }
+    return { ok: true, handle };
+  }
+  if (handle.length > FREE_TEXT_HANDLE_MAX) {
+    return { ok: false, error: `Keep that under ${FREE_TEXT_HANDLE_MAX} characters.` };
+  }
+  if (CONTROL_RE.test(handle)) {
+    return { ok: false, error: 'Remove any special characters.' };
   }
   return { ok: true, handle };
 }
 
 /** The handle as a person would write it — '@sam', '$sam', 'sam@x.com'. */
 export function displayHandle(service, handle) {
-  return paymentServiceFor(service).display_prefix + normalizeHandle(handle);
+  return paymentServiceFor(service).display_prefix + normalizeHandle(handle, service);
 }
 
 /**
@@ -584,7 +662,11 @@ export function displayHandle(service, handle) {
  * link somewhere else even if it reached the row past `validateHandle`.
  */
 export function payLink(service, handle, amountCents = 0, note = '') {
-  const clean = normalizeHandle(handle);
+  // The same `url_handle` flag validateHandle reads: a service with no link to
+  // build returns null here BEFORE the path-safety check, so a perfectly valid
+  // Zelle phone number is "no link", never "bad handle".
+  if (!paymentServiceFor(service).url_handle) return null;
+  const clean = normalizeHandle(handle, service);
   if (!clean || !HANDLE_RE.test(clean) || !HANDLE_HAS_NAME_RE.test(clean)) return null;
   const seg = encodeURIComponent(clean);
   const amount = Number.isFinite(amountCents) && amountCents > 0

@@ -317,6 +317,69 @@ describe('splitPercentsForCategory', () => {
     ];
     expect(splitPercentsForCategory(broken, 'x', ['a', 'b'])).toBe(null);
   });
+
+  // A total of exactly 100% is not the same as a VALID rule. These rows come
+  // from the database, where any adult can write one by hand, so the form's
+  // validator is not the last line of defence.
+  // A coercion that "cleans" a bad value hides it from the validator that
+  // comes next: Number('not-a-number') || 0 read as a deliberate 0%.
+  it('returns null for a rule holding a value that is not a number', () => {
+    // '' and null included on purpose: a blank is "no answer", not "0%", and
+    // Number() reads both as a confident zero.
+    for (const junk of ['not-a-number', undefined, null, {}, NaN, '', '  ']) {
+      const rule = [
+        { category: 'x', member_id: 'a', percent_bp: junk },
+        { category: 'x', member_id: 'b', percent_bp: 10000 },
+      ];
+      expect(splitPercentsForCategory(rule, 'x', ['a', 'b']), String(junk)).toBe(null);
+    }
+  });
+
+  it('still applies a rule whose percentages came back as strings', () => {
+    const rule = [
+      { category: 'x', member_id: 'a', percent_bp: '7000' },
+      { category: 'x', member_id: 'b', percent_bp: '3000' },
+    ];
+    expect(splitPercentsForCategory(rule, 'x', ['a', 'b'])).toEqual([
+      { member_id: 'a', percent_bp: 7000 },
+      { member_id: 'b', percent_bp: 3000 },
+    ]);
+  });
+
+  it('returns null for a fractional basis point', () => {
+    const rule = [
+      { category: 'x', member_id: 'a', percent_bp: 3333.5 },
+      { category: 'x', member_id: 'b', percent_bp: 6666.5 },
+    ];
+    expect(splitPercentsForCategory(rule, 'x', ['a', 'b'])).toBe(null);
+  });
+
+  it('returns null for a rule that totals 100% with a negative share', () => {
+    const hostile = [
+      { category: 'x', member_id: 'a', percent_bp: 15000 },
+      { category: 'x', member_id: 'b', percent_bp: -5000 },
+    ];
+    expect(splitPercentsForCategory(hostile, 'x', ['a', 'b'])).toBe(null);
+  });
+
+  it('does not let a negative share reach the apportioner', () => {
+    // The failure this prevents, spelled out: apportioning -5000bp of $100
+    // hands member b MINUS fifty dollars, which lands in the balances as a
+    // credit nobody granted. Falling back to an even split is the documented
+    // behaviour for any rule that does not apply.
+    const hostile = [
+      { category: 'x', member_id: 'a', percent_bp: 15000 },
+      { category: 'x', member_id: 'b', percent_bp: -5000 },
+    ];
+    const { splits, source } = computeSplitsWithCategory(
+      10000, ['a', 'b'], 'equal', {}, hostile, 'x');
+    expect(source).toBe('equal');
+    expect(splits).toEqual([
+      { member_id: 'a', amount_cents: 5000 },
+      { member_id: 'b', amount_cents: 5000 },
+    ]);
+    expect(splits.every(x => x.amount_cents >= 0)).toBe(true);
+  });
 });
 
 describe('apportionByPercent', () => {
@@ -756,6 +819,45 @@ describe('validateHandle', () => {
   });
   it('refuses a service nobody offers', () => {
     expect(validateHandle('not-a-service', 'sam').ok).toBe(false);
+  });
+
+  // The rules follow the service, because only three of the five ever become a
+  // URL. Zelle and 'other' were held to URL-path rules and rejected the exact
+  // values their own hints ask for.
+  it('accepts the free-text shapes Zelle and Other advertise', () => {
+    for (const ok of ['+1 (555) 123-4567', 'sam@example.com', 'Cash or check', '$20 in cash']) {
+      expect(validateHandle('zelle', ok).ok, ok).toBe(true);
+      expect(validateHandle('other', ok).ok, ok).toBe(true);
+    }
+  });
+
+  it('keeps holding the link-building services to URL-path rules', () => {
+    // The same strings, against a service that DOES build a URL.
+    for (const bad of ['+1 (555) 123-4567', 'Cash or check']) {
+      expect(validateHandle('venmo', bad).ok, bad).toBe(false);
+      expect(validateHandle('cashapp', bad).ok, bad).toBe(false);
+    }
+  });
+
+  it('still bounds a free-text handle', () => {
+    expect(validateHandle('other', 'x'.repeat(65)).ok).toBe(false);
+    expect(validateHandle('other', 'x'.repeat(64)).ok).toBe(true);
+    expect(validateHandle('other', 'pay\u0000me').ok).toBe(false);
+    expect(validateHandle('other', '....').ok).toBe(false);   // names nobody
+    expect(validateHandle('other', '   ').ok).toBe(false);
+  });
+
+  it('leaves the leading character of a free-text answer alone', () => {
+    // '$20 in cash' is an answer, not a Cashtag with a stray dollar on it.
+    expect(validateHandle('other', '$20 in cash').handle).toBe('$20 in cash');
+    expect(validateHandle('cashapp', '$sam').handle).toBe('sam');
+    expect(displayHandle('other', '$20 in cash')).toBe('$20 in cash');
+  });
+
+  it('gives a free-text handle no link rather than calling it invalid', () => {
+    const phone = '+1 (555) 123-4567';
+    expect(validateHandle('zelle', phone).ok).toBe(true);
+    expect(payLink('zelle', phone, 14000)).toBe(null);
   });
 });
 

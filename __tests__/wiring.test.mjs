@@ -118,6 +118,33 @@ describe("the export block is not offered where it cannot work", () => {
   });
 });
 
+describe("boot does not issue a read the caller is known to be refused", () => {
+  const src = body();
+  const loadData = /async function loadData\(\)[\s\S]*?\n\s*\]\);/.exec(src);
+
+  it("asks for reimbursement_agreements only as an adult", () => {
+    // endpoint_only with read:"adult". A child's request is refused, and the
+    // browser records the 403 before the .catch can swallow it — console noise
+    // on every child's launch, and a failure in the e2e error collector, for an
+    // answer that is known to be empty before the request is sent.
+    //
+    // Pinned as the whole ternary rather than "the file mentions IS_ADULT
+    // somewhere": the gate that matters is the one wrapped around THIS read,
+    // and an IS_ADULT elsewhere in loadData would satisfy a looser check while
+    // the request still went out.
+    expect(loadData, "loadData's Promise.all block not found").toBeTruthy();
+    expect(loadData[0]).toMatch(
+      /IS_ADULT\s*\n?\s*\?\s*db\('SELECT \* FROM app_expense_splitter__reimbursement_agreements'\)[\s\S]{0,40}?\n\s*:\s*Promise\.resolve\(\{ rows: \[\] \}\)/,
+    );
+  });
+
+  it("still merges the agreements it did fetch into the request list", () => {
+    // The empty branch has to be the same SHAPE as the real answer, or the
+    // merge below throws for every child instead of finding nothing.
+    expect(src).toMatch(/const agrById = new Map\(aRes\.rows\.map\(/);
+  });
+});
+
 describe("weight inputs are bounded where they are read, not only where they are checked", () => {
   const src = body();
   const setWeight = /window\._setWeight = function[\s\S]*?\n};/.exec(src);
@@ -138,5 +165,31 @@ describe("weight inputs are bounded where they are read, not only where they are
     expect(src).toContain("const percentReady = isPercent && total === TOTAL_BP;");
     expect(src).toContain("const sharesReady = !isPercent && validateShares(f.weights, ids);");
     expect(src).toMatch(/amountCents > 0 && \(percentReady \|\| sharesReady\)\s*\n?\s*\?/);
+  });
+});
+
+describe("an optional read never holds up the first paint", () => {
+  const src = body();
+  const init = /async function init\(\)[\s\S]*?\n}/.exec(src);
+
+  it("does not await the report view list alongside members and data", () => {
+    // Swallowing loadReportViews' errors was not enough: a reports endpoint
+    // that HANGS never rejects, and Promise.all waits either way, so the whole
+    // app sat on its skeleton behind a list nothing above the fold needs.
+    expect(init, "init() not found").toBeTruthy();
+    expect(init[0]).toMatch(/await Promise\.all\(\[loadMembers\(\), loadData\(\)\]\);/);
+    expect(init[0]).not.toMatch(/Promise\.all\(\[[^\]]*loadReportViews\(\)/);
+  });
+
+  it("starts it after the first paint and repaints only the block it feeds", () => {
+    const awaited = /await\s+loadReportViews\(\)/.test(init[0]);
+    expect(awaited, "loadReportViews is awaited on the boot path").toBe(false);
+    expect(init[0]).toMatch(/loadReportViews\(\)\s*\.then\(renderExportBlock\)/);
+    // Ordered after the paint: a repaint of an element that does not exist yet
+    // is a no-op that leaves the block empty until the next render.
+    const paint = init[0].indexOf("showMain();");
+    const start = init[0].indexOf("loadReportViews()");
+    expect(paint).toBeGreaterThan(-1);
+    expect(start).toBeGreaterThan(paint);
   });
 });
