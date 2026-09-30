@@ -535,6 +535,252 @@
           }
         }
       ]
+    },
+    {
+      "name": "a child can read the household ledger but cannot record an expense, a share, a settlement or a category split",
+      "members": { "parent": "adult", "kid": "child" },
+      "steps": [
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": ["ex1", "{{parent}}", 6000, "Groceries", "food", "2026-07-19", "equal", "2026-07-19T10:00:00Z"],
+          "expect": { "status": 200 }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+          "params": ["sp1", "ex1", "{{kid}}", 3000],
+          "expect": { "status": 200 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "SELECT id, amount_cents FROM app_expense_splitter__expenses",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "ex1", "amount_cents": 6000 }] }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "SELECT id, member_id FROM app_expense_splitter__expense_splits",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "sp1", "member_id": "scn-kid" }] }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "ex-kid",
+            "{{kid}}",
+            90000,
+            "Says I paid rent",
+            "housing",
+            "2026-07-19",
+            "equal",
+            "2026-07-19T11:00:00Z"
+          ],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+          "params": ["sp-kid", "ex1", "{{parent}}", 6000],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "st-kid",
+            "{{kid}}",
+            "{{parent}}",
+            3000,
+            "paid you back",
+            "2026-07-19T12:00:00Z",
+            "2026-07-19T12:00:00Z"
+          ],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES (?, ?, ?, ?, ?)",
+          "params": ["cs-kid", "food", "{{kid}}", 0, "2026-07-19T12:00:00Z"],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id FROM app_expense_splitter__expenses",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "ex1" }] }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id FROM app_expense_splitter__expense_splits",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "sp1" }] }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id FROM app_expense_splitter__settlements",
+          "expect": { "status": 200, "rowCount": 0 }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id FROM app_expense_splitter__category_splits",
+          "expect": { "status": 200, "rowCount": 0 }
+        }
+      ]
+    },
+    {
+      "name": "a child cannot shrink their share, erase a settlement, rewrite a category default or delete an expense",
+      "members": { "parent": "adult", "kid": "child" },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES ('ex1', 'scn-parent', 6000, 'Phone bill', 'utilities', '2026-07-19', 'equal', '2026-07-19T10:00:00Z')"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES ('sp1', 'ex1', 'scn-kid', 3000)"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES ('st1', 'scn-parent', 'scn-kid', 500, 'allowance advance', '2026-07-19T11:00:00Z', '2026-07-19T11:00:00Z')"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES ('cs1', 'utilities', 'scn-kid', 5000, '2026-07-19T10:00:00Z')"
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "UPDATE app_expense_splitter__expense_splits SET amount_cents = 0 WHERE id = ?",
+          "params": ["sp1"],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "DELETE FROM app_expense_splitter__settlements WHERE id = ?",
+          "params": ["st1"],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "UPDATE app_expense_splitter__category_splits SET percent_bp = 0 WHERE id = ?",
+          "params": ["cs1"],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "DELETE FROM app_expense_splitter__expenses WHERE id = ?",
+          "params": ["ex1"],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT amount_cents FROM app_expense_splitter__expense_splits WHERE id = 'sp1'",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "amount_cents": 3000 }] }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id FROM app_expense_splitter__settlements",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "st1" }] }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT percent_bp FROM app_expense_splitter__category_splits WHERE id = 'cs1'",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "percent_bp": 5000 }] }
+        },
+        {
+          "action": "db",
+          "as": "parent",
+          "sql": "SELECT id FROM app_expense_splitter__expenses",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "ex1" }] }
+        }
+      ]
+    },
+    {
+      "name": "in a shared space every participant adult can record an expense and a payment, while a granted guest can read the ledger but move no money",
+      "context": "shared_space",
+      "members": { "steward": "admin", "coparent": "adult", "sitter": "guest" },
+      "granted": ["sitter"],
+      "steps": [
+        {
+          "action": "db",
+          "as": "coparent",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "ex1",
+            "{{coparent}}",
+            12000,
+            "School shoes",
+            "clothing",
+            "2026-07-19",
+            "equal",
+            "2026-07-19T10:00:00Z"
+          ],
+          "expect": { "status": 200 }
+        },
+        {
+          "action": "db",
+          "as": "coparent",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "st1",
+            "{{steward}}",
+            "{{coparent}}",
+            6000,
+            "half the shoes",
+            "2026-07-20T10:00:00Z",
+            "2026-07-20T10:00:00Z"
+          ],
+          "expect": { "status": 200 }
+        },
+        {
+          "action": "db",
+          "as": "sitter",
+          "sql": "SELECT id FROM app_expense_splitter__expenses",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "ex1" }] }
+        },
+        {
+          "action": "db",
+          "as": "sitter",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": ["ex-guest", "{{sitter}}", 5000, "Snacks", "food", "2026-07-19", "equal", "2026-07-19T12:00:00Z"],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "sitter",
+          "sql": "DELETE FROM app_expense_splitter__settlements WHERE id = ?",
+          "params": ["st1"],
+          "expect": { "status": 403 }
+        },
+        {
+          "action": "db",
+          "as": "steward",
+          "sql": "SELECT id FROM app_expense_splitter__expenses",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "ex1" }] }
+        },
+        {
+          "action": "db",
+          "as": "steward",
+          "sql": "SELECT id FROM app_expense_splitter__settlements",
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "st1" }] }
+        }
+      ]
     }
   ]
 }
