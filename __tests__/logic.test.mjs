@@ -260,7 +260,7 @@ describe('categoryFor', () => {
   it('returns the matching category', () => {
     const cat = categoryFor('food');
     expect(cat.label).toBe('Food & Dining');
-    expect(cat.icon).toBe('🍔');
+    expect(cat.glyph).toBe('cloche');
   });
 
   it('falls back to "other" for unknown ids', () => {

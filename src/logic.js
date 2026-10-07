@@ -4,15 +4,15 @@
  */
 
 export const CATEGORIES = [
-  { id: 'food',          label: 'Food & Dining',  icon: '🍔' },
-  { id: 'transport',     label: 'Transport',       icon: '🚗' },
-  { id: 'utilities',     label: 'Utilities',       icon: '💡' },
-  { id: 'household',     label: 'Household',       icon: '🏠' },
-  { id: 'entertainment', label: 'Entertainment',   icon: '🎬' },
-  { id: 'shopping',      label: 'Shopping',        icon: '🛒' },
-  { id: 'travel',        label: 'Travel',          icon: '✈️' },
-  { id: 'health',        label: 'Health',          icon: '💊' },
-  { id: 'other',         label: 'Other',           icon: '📦' },
+  { id: 'food',          label: 'Food & Dining',  glyph: 'cloche' },
+  { id: 'transport',     label: 'Transport',       glyph: 'car' },
+  { id: 'utilities',     label: 'Utilities',       glyph: 'lightbulb' },
+  { id: 'household',     label: 'Household',       glyph: 'house' },
+  { id: 'entertainment', label: 'Entertainment',   glyph: 'film' },
+  { id: 'shopping',      label: 'Shopping',        glyph: 'shop-bag' },
+  { id: 'travel',        label: 'Travel',          glyph: 'plane' },
+  { id: 'health',        label: 'Health',          glyph: 'pill' },
+  { id: 'other',         label: 'Other',           glyph: 'box' },
 ];
 
 export function categoryFor(id) {

@@ -488,7 +488,7 @@
 
   <!-- Error state -->
   <div id="error-state" hidden style="padding:40px 20px;text-align:center">
-    <div style="font-size:2rem;margin-bottom:10px">⚠️</div>
+    <div id="error-glyph" style="font-size:2rem;margin-bottom:10px"></div>
     <div id="error-msg" style="color:var(--red-ink);font-weight:600"></div>
     <button class="btn btn-ghost" style="margin-top:16px" onclick="location.reload()">Retry</button>
   </div>
@@ -499,7 +499,7 @@
 
       <header class="header">
         <div>
-          <div class="header-title">💸 Expense Splitter</div>
+          <div class="header-title"><span id="header-glyph"></span> Expense Splitter</div>
           <div class="header-sub" id="header-sub"></div>
         </div>
         <button class="btn-add" id="add-btn" data-action="openAdd">+ Add</button>
@@ -555,7 +555,7 @@
 </div>
 
 <script type="module">
-import { esc, memberColor, initial, fmtMoney, createFilesHelper, searchMatch, hubToday } from '/hub-sdk.js';
+import { esc, memberColor, initial, fmtMoney, createFilesHelper, searchMatch, hubToday, glyph, chickadee } from '/hub-sdk.js';
 import {
   CATEGORIES, categoryFor,
   computeBalances, simplifyDebts, computeSplits, validateCustomSplits,
@@ -567,6 +567,9 @@ import {
   summarize, expenseMonths, monthLabel, rangeForPeriod, monthKey,
   PAYMENT_SERVICES, paymentServiceFor, validateHandle, displayHandle, payLink, handleMap,
 } from './logic.js';
+
+document.getElementById('header-glyph').innerHTML = glyph('split');
+document.getElementById('error-glyph').innerHTML = glyph('warning');
 
 /* ── Runtime globals ─────────────────────────────────── */
 const CONTEXT    = window.__CONTEXT_URL ?? '';
@@ -847,7 +850,7 @@ function renderCatFilter() {
   document.getElementById('cat-filter').innerHTML =
     `<button class="cat-pill active" data-action="filterCat" data-cat="all">All</button>` +
     used.map(c =>
-      `<button class="cat-pill" data-action="filterCat" data-cat="${esc(c.id)}">${c.icon} ${esc(c.label)}</button>`
+      `<button class="cat-pill" data-action="filterCat" data-cat="${esc(c.id)}">${glyph(c.glyph, { accent: "currentColor" })} ${esc(c.label)}</button>`
     ).join('');
 }
 
@@ -915,7 +918,7 @@ function renderSummary() {
   if (sum.count === 0) {
     el.innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">📊</div>
+        <div class="empty-icon">${chickadee("nest", { size: 72 })}</div>
         <div class="empty-title">Nothing spent yet</div>
         <div class="empty-sub">${expenses.length === 0
           ? 'Add an expense and its totals show up here.'
@@ -937,7 +940,7 @@ function renderSummary() {
         const cat = categoryFor(c.category);
         return `<div class="sum-row" data-testid="summary-category" data-category="${esc(c.category)}">
           <div class="sum-row-main">
-            <div class="sum-row-name">${cat.icon} ${esc(cat.label)}</div>
+            <div class="sum-row-name">${glyph(cat.glyph)} ${esc(cat.label)}</div>
             <div class="sum-bar"><i style="width:${Math.round((c.total_cents / top) * 100)}%"></i></div>
           </div>
           <div class="sum-row-value">${fmtSplit(c.total_cents)}</div>
@@ -1068,7 +1071,7 @@ function renderRequests() {
 
   if (!requests.length) {
     el.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">🤝</div>
+      <div class="empty-icon">${chickadee("nest", { size: 72 })}</div>
       <p>No reimbursement requests.</p>
       <p class="empty-sub">Ask someone to pay you back for a shared cost — you both confirm the amount before it counts.</p>
     </div>`;
@@ -1152,7 +1155,7 @@ function renderBalanceBanner() {
   const el = document.getElementById('balance-banner');
   if (myBal === 0) {
     el.className = 'balance-banner settled';
-    el.innerHTML = `<span class="balance-settled-msg">✓ You're all settled up</span>`;
+    el.innerHTML = `<span class="balance-settled-msg">${glyph('tick')} You're all settled up</span>`;
   } else if (myBal > 0) {
     el.className = 'balance-banner positive';
     el.innerHTML = `
@@ -1172,7 +1175,7 @@ function renderBalancesView() {
   if (transactions.length === 0) {
     el.innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">🎉</div>
+        <div class="empty-icon">${chickadee("celebrating", { size: 72 })}</div>
         <div class="empty-title">All settled up!</div>
         <div class="empty-sub">Add an expense to start tracking.</div>
       </div>`;
@@ -1227,7 +1230,7 @@ function renderExpensesView() {
   if (list.length === 0) {
     el.innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">📋</div>
+        <div class="empty-icon">${chickadee("nest", { size: 72 })}</div>
         <div class="empty-title">No expenses found</div>
         <div class="empty-sub">${expenses.length === 0 ? 'Tap + Add to record your first expense.' : 'Try a different filter.'}</div>
       </div>`;
@@ -1243,7 +1246,7 @@ function expenseCard(exp, i) {
   return `
     <div class="expense-card" style="animation-delay:${delay}ms"
          data-action="openDetail" data-expense="${esc(exp.id)}">
-      <div class="expense-icon">${cat.icon}</div>
+      <div class="expense-icon">${glyph(cat.glyph)}</div>
       <div class="expense-main">
         <div class="expense-desc">${esc(exp.description)}</div>
         <div class="expense-meta">
@@ -1393,7 +1396,7 @@ function renderFormPills() {
   // Category pills
   document.getElementById('f-cat-pills').innerHTML = CATEGORIES.map(c =>
     `<button class="form-cat-pill${f.category === c.id ? ' active' : ''}"
-             data-action="setCategory" data-cat="${esc(c.id)}">${c.icon} ${esc(c.label)}</button>`
+             data-action="setCategory" data-cat="${esc(c.id)}">${glyph(c.glyph, { accent: "currentColor" })} ${esc(c.label)}</button>`
   ).join('');
 
   // Paid-by member pills
@@ -1776,7 +1779,7 @@ function openDetailModal(expId) {
 
   openModal(`
     <div class="modal-header">
-      <span class="modal-title">${cat.icon} Expense Details</span>
+      <span class="modal-title">${glyph(cat.glyph)} Expense Details</span>
       <button class="modal-close" data-action="closeModal">×</button>
     </div>
     <div class="modal-body">
@@ -1793,7 +1796,7 @@ function openDetailModal(expId) {
       </div>
       <div class="detail-row">
         <span class="detail-key">Category</span>
-        <span class="detail-val">${cat.icon} ${esc(cat.label)}</span>
+        <span class="detail-val">${glyph(cat.glyph)} ${esc(cat.label)}</span>
       </div>
       <div class="detail-row">
         <span class="detail-key">Split</span>
@@ -1979,7 +1982,7 @@ window._openSplitRules = function() {
     <div class="modal-body">
       <label class="field"><span>Category</span>
         <select id="sr-cat" data-change="renderSplitRule">
-          ${CATEGORIES.map(c => `<option value="${esc(c.id)}">${c.icon} ${esc(c.label)}</option>`).join('')}
+          ${CATEGORIES.map(c => `<option value="${esc(c.id)}">${esc(c.label)}</option>`).join('')}
         </select>
       </label>
       <div id="sr-rows"></div>
@@ -2352,7 +2355,7 @@ function renderWidget() {
   el.onclick = () => window.parent?.postMessage({ type: 'hub:open', appId: APP_ID }, '*');
 
   if (myBal === 0) {
-    el.innerHTML = `<div class="widget-settled">✓ All settled up</div>`;
+    el.innerHTML = `<div class="widget-settled">${glyph('tick')} All settled up</div>`;
   } else if (myBal > 0) {
     el.innerHTML = `
       <div class="widget-label">You're owed</div>
