@@ -1,0 +1,1974 @@
+{
+ "seed": [
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT08:00:00Z','now','+0 days'))",
+   "params": [
+    "perf-ex-01",
+    "{{adult2}}",
+    18432,
+    "Weekly groceries",
+    "food",
+    "{{date:0}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-001",
+    "perf-ex-01",
+    "{{me}}",
+    6144
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-002",
+    "perf-ex-01",
+    "{{partner}}",
+    6144
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-003",
+    "perf-ex-01",
+    "{{adult2}}",
+    6144
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT09:13:00Z','now','-4 days'))",
+   "params": [
+    "perf-ex-02",
+    "{{me}}",
+    14210,
+    "Electric bill",
+    "utilities",
+    "{{date:-4}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-004",
+    "perf-ex-02",
+    "{{me}}",
+    7105
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-005",
+    "perf-ex-02",
+    "{{partner}}",
+    7105
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:26:00Z','now','-6 days'))",
+   "params": [
+    "perf-ex-03",
+    "{{me}}",
+    9650,
+    "Dinner at Ostra",
+    "food",
+    "{{date:-6}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-006",
+    "perf-ex-03",
+    "{{me}}",
+    4825
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-007",
+    "perf-ex-03",
+    "{{partner}}",
+    4825
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT11:39:00Z','now','-10 days'))",
+   "params": [
+    "perf-ex-04",
+    "{{partner}}",
+    6120,
+    "Gas for the road trip",
+    "transport",
+    "{{date:-10}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-008",
+    "perf-ex-04",
+    "{{me}}",
+    2040
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-009",
+    "perf-ex-04",
+    "{{partner}}",
+    2040
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-010",
+    "perf-ex-04",
+    "{{adult2}}",
+    2040
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT12:52:00Z','now','-12 days'))",
+   "params": [
+    "perf-ex-05",
+    "{{partner}}",
+    7999,
+    "Internet",
+    "utilities",
+    "{{date:-12}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-011",
+    "perf-ex-05",
+    "{{me}}",
+    3999
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-012",
+    "perf-ex-05",
+    "{{partner}}",
+    4000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT13:05:00Z','now','-16 days'))",
+   "params": [
+    "perf-ex-06",
+    "{{me}}",
+    24900,
+    "New vacuum",
+    "household",
+    "{{date:-16}}",
+    "percent"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-013",
+    "perf-ex-06",
+    "{{me}}",
+    14940
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-014",
+    "perf-ex-06",
+    "{{partner}}",
+    9960
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT14:18:00Z','now','-18 days'))",
+   "params": [
+    "perf-ex-07",
+    "{{adult2}}",
+    4350,
+    "Movie night",
+    "entertainment",
+    "{{date:-18}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-015",
+    "perf-ex-07",
+    "{{me}}",
+    1450
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-016",
+    "perf-ex-07",
+    "{{partner}}",
+    1450
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-017",
+    "perf-ex-07",
+    "{{adult2}}",
+    1450
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT15:31:00Z','now','-22 days'))",
+   "params": [
+    "perf-ex-08",
+    "{{me}}",
+    3875,
+    "Pharmacy run",
+    "health",
+    "{{date:-22}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-018",
+    "perf-ex-08",
+    "{{me}}",
+    2712
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-019",
+    "perf-ex-08",
+    "{{partner}}",
+    1163
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT16:44:00Z','now','-24 days'))",
+   "params": [
+    "perf-ex-09",
+    "{{partner}}",
+    31266,
+    "Costco haul",
+    "shopping",
+    "{{date:-24}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-020",
+    "perf-ex-09",
+    "{{me}}",
+    15633
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-021",
+    "perf-ex-09",
+    "{{partner}}",
+    15633
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT17:57:00Z','now','-28 days'))",
+   "params": [
+    "perf-ex-10",
+    "{{partner}}",
+    45000,
+    "Cabin weekend deposit",
+    "travel",
+    "{{date:-28}}",
+    "custom"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-022",
+    "perf-ex-10",
+    "{{me}}",
+    13500
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-023",
+    "perf-ex-10",
+    "{{partner}}",
+    13500
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-024",
+    "perf-ex-10",
+    "{{adult2}}",
+    18000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT18:10:00Z','now','-30 days'))",
+   "params": [
+    "perf-ex-11",
+    "{{me}}",
+    5240,
+    "Farmers market",
+    "food",
+    "{{date:-30}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-025",
+    "perf-ex-11",
+    "{{me}}",
+    2620
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-026",
+    "perf-ex-11",
+    "{{partner}}",
+    2620
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:23:00Z','now','-34 days'))",
+   "params": [
+    "perf-ex-12",
+    "{{me}}",
+    8830,
+    "Water and sewer",
+    "utilities",
+    "{{date:-34}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-027",
+    "perf-ex-12",
+    "{{me}}",
+    4415
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-028",
+    "perf-ex-12",
+    "{{partner}}",
+    4415
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT08:36:00Z','now','-36 days'))",
+   "params": [
+    "perf-ex-13",
+    "{{adult2}}",
+    5615,
+    "Takeout Thai",
+    "food",
+    "{{date:-36}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-029",
+    "perf-ex-13",
+    "{{me}}",
+    1871
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-030",
+    "perf-ex-13",
+    "{{partner}}",
+    1871
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-031",
+    "perf-ex-13",
+    "{{adult2}}",
+    1873
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT09:49:00Z','now','-40 days'))",
+   "params": [
+    "perf-ex-14",
+    "{{partner}}",
+    1800,
+    "Parking downtown",
+    "transport",
+    "{{date:-40}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-032",
+    "perf-ex-14",
+    "{{me}}",
+    900
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-033",
+    "perf-ex-14",
+    "{{partner}}",
+    900
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:02:00Z','now','-42 days'))",
+   "params": [
+    "perf-ex-15",
+    "{{partner}}",
+    4297,
+    "Streaming subscriptions",
+    "entertainment",
+    "{{date:-42}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-034",
+    "perf-ex-15",
+    "{{me}}",
+    2148
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-035",
+    "perf-ex-15",
+    "{{partner}}",
+    2149
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT11:15:00Z','now','-46 days'))",
+   "params": [
+    "perf-ex-16",
+    "{{me}}",
+    3360,
+    "Cleaning supplies",
+    "household",
+    "{{date:-46}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-036",
+    "perf-ex-16",
+    "{{me}}",
+    1120
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-037",
+    "perf-ex-16",
+    "{{partner}}",
+    1120
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-038",
+    "perf-ex-16",
+    "{{adult2}}",
+    1120
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT12:28:00Z','now','-48 days'))",
+   "params": [
+    "perf-ex-17",
+    "{{me}}",
+    14000,
+    "Dentist copay",
+    "health",
+    "{{date:-48}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-039",
+    "perf-ex-17",
+    "{{me}}",
+    9800
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-040",
+    "perf-ex-17",
+    "{{partner}}",
+    4200
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT13:41:00Z','now','-52 days'))",
+   "params": [
+    "perf-ex-18",
+    "{{me}}",
+    8500,
+    "Birthday gift for Mum",
+    "shopping",
+    "{{date:-52}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-041",
+    "perf-ex-18",
+    "{{me}}",
+    4250
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-042",
+    "perf-ex-18",
+    "{{partner}}",
+    4250
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT14:54:00Z','now','-54 days'))",
+   "params": [
+    "perf-ex-19",
+    "{{adult2}}",
+    61240,
+    "Flights to Denver",
+    "travel",
+    "{{date:-54}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-043",
+    "perf-ex-19",
+    "{{me}}",
+    20413
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-044",
+    "perf-ex-19",
+    "{{partner}}",
+    20413
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-045",
+    "perf-ex-19",
+    "{{adult2}}",
+    20414
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT15:07:00Z','now','-58 days'))",
+   "params": [
+    "perf-ex-20",
+    "{{partner}}",
+    9500,
+    "Lawn service",
+    "household",
+    "{{date:-58}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-046",
+    "perf-ex-20",
+    "{{me}}",
+    4750
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-047",
+    "perf-ex-20",
+    "{{partner}}",
+    4750
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT16:20:00Z','now','-60 days'))",
+   "params": [
+    "perf-ex-21",
+    "{{me}}",
+    16788,
+    "Weekly groceries",
+    "food",
+    "{{date:-60}}",
+    "shares"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-048",
+    "perf-ex-21",
+    "{{me}}",
+    11192
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-049",
+    "perf-ex-21",
+    "{{partner}}",
+    5596
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT17:33:00Z','now','-64 days'))",
+   "params": [
+    "perf-ex-22",
+    "{{me}}",
+    6340,
+    "Natural gas bill",
+    "utilities",
+    "{{date:-64}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-050",
+    "perf-ex-22",
+    "{{me}}",
+    2113
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-051",
+    "perf-ex-22",
+    "{{partner}}",
+    2113
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-052",
+    "perf-ex-22",
+    "{{adult2}}",
+    2114
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT18:46:00Z','now','-66 days'))",
+   "params": [
+    "perf-ex-23",
+    "{{me}}",
+    11230,
+    "Brunch with the neighbours",
+    "food",
+    "{{date:-66}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-053",
+    "perf-ex-23",
+    "{{me}}",
+    5615
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-054",
+    "perf-ex-23",
+    "{{partner}}",
+    5615
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:59:00Z','now','-70 days'))",
+   "params": [
+    "perf-ex-24",
+    "{{partner}}",
+    9875,
+    "Car wash and oil change",
+    "transport",
+    "{{date:-70}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-055",
+    "perf-ex-24",
+    "{{me}}",
+    4937
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-056",
+    "perf-ex-24",
+    "{{partner}}",
+    4938
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT08:12:00Z','now','-72 days'))",
+   "params": [
+    "perf-ex-25",
+    "{{adult2}}",
+    18000,
+    "Concert tickets",
+    "entertainment",
+    "{{date:-72}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-057",
+    "perf-ex-25",
+    "{{me}}",
+    6000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-058",
+    "perf-ex-25",
+    "{{partner}}",
+    6000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-059",
+    "perf-ex-25",
+    "{{adult2}}",
+    6000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT09:25:00Z','now','-76 days'))",
+   "params": [
+    "perf-ex-26",
+    "{{me}}",
+    4420,
+    "Furnace filter and bulbs",
+    "household",
+    "{{date:-76}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-060",
+    "perf-ex-26",
+    "{{me}}",
+    2210
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-061",
+    "perf-ex-26",
+    "{{partner}}",
+    2210
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:38:00Z','now','-78 days'))",
+   "params": [
+    "perf-ex-27",
+    "{{me}}",
+    9000,
+    "Physio session",
+    "health",
+    "{{date:-78}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-062",
+    "perf-ex-27",
+    "{{me}}",
+    6300
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-063",
+    "perf-ex-27",
+    "{{partner}}",
+    2700
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT11:51:00Z','now','-82 days'))",
+   "params": [
+    "perf-ex-28",
+    "{{me}}",
+    7315,
+    "School supplies",
+    "shopping",
+    "{{date:-82}}",
+    "percent"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-064",
+    "perf-ex-28",
+    "{{me}}",
+    3657
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-065",
+    "perf-ex-28",
+    "{{partner}}",
+    2194
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-066",
+    "perf-ex-28",
+    "{{adult2}}",
+    1464
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT12:04:00Z','now','-84 days'))",
+   "params": [
+    "perf-ex-29",
+    "{{partner}}",
+    38600,
+    "Hotel, two nights",
+    "travel",
+    "{{date:-84}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-067",
+    "perf-ex-29",
+    "{{me}}",
+    19300
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-068",
+    "perf-ex-29",
+    "{{partner}}",
+    19300
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT13:17:00Z','now','-88 days'))",
+   "params": [
+    "perf-ex-30",
+    "{{partner}}",
+    22500,
+    "Plumber call-out",
+    "household",
+    "{{date:-88}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-069",
+    "perf-ex-30",
+    "{{me}}",
+    11250
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-070",
+    "perf-ex-30",
+    "{{partner}}",
+    11250
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT14:30:00Z','now','-90 days'))",
+   "params": [
+    "perf-ex-31",
+    "{{adult2}}",
+    20114,
+    "Weekly groceries",
+    "food",
+    "{{date:-90}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-071",
+    "perf-ex-31",
+    "{{me}}",
+    6704
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-072",
+    "perf-ex-31",
+    "{{partner}}",
+    6704
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-073",
+    "perf-ex-31",
+    "{{adult2}}",
+    6706
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT15:43:00Z','now','-94 days'))",
+   "params": [
+    "perf-ex-32",
+    "{{me}}",
+    12000,
+    "Phone plan",
+    "utilities",
+    "{{date:-94}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-074",
+    "perf-ex-32",
+    "{{me}}",
+    6000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-075",
+    "perf-ex-32",
+    "{{partner}}",
+    6000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT16:56:00Z','now','-96 days'))",
+   "params": [
+    "perf-ex-33",
+    "{{me}}",
+    4860,
+    "Pizza night",
+    "food",
+    "{{date:-96}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-076",
+    "perf-ex-33",
+    "{{me}}",
+    2430
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-077",
+    "perf-ex-33",
+    "{{partner}}",
+    2430
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT17:09:00Z','now','-100 days'))",
+   "params": [
+    "perf-ex-34",
+    "{{partner}}",
+    14400,
+    "Train passes",
+    "transport",
+    "{{date:-100}}",
+    "shares"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-078",
+    "perf-ex-34",
+    "{{me}}",
+    7200
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-079",
+    "perf-ex-34",
+    "{{partner}}",
+    3600
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-080",
+    "perf-ex-34",
+    "{{adult2}}",
+    3600
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT18:22:00Z','now','-102 days'))",
+   "params": [
+    "perf-ex-35",
+    "{{partner}}",
+    5200,
+    "Bowling",
+    "entertainment",
+    "{{date:-102}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-081",
+    "perf-ex-35",
+    "{{me}}",
+    2600
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-082",
+    "perf-ex-35",
+    "{{partner}}",
+    2600
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:35:00Z','now','-106 days'))",
+   "params": [
+    "perf-ex-36",
+    "{{me}}",
+    8840,
+    "Paint for the hallway",
+    "household",
+    "{{date:-106}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-083",
+    "perf-ex-36",
+    "{{me}}",
+    4420
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-084",
+    "perf-ex-36",
+    "{{partner}}",
+    4420
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT08:48:00Z','now','-108 days'))",
+   "params": [
+    "perf-ex-37",
+    "{{adult2}}",
+    2640,
+    "Prescription refill",
+    "health",
+    "{{date:-108}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-085",
+    "perf-ex-37",
+    "{{me}}",
+    880
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-086",
+    "perf-ex-37",
+    "{{partner}}",
+    880
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-087",
+    "perf-ex-37",
+    "{{adult2}}",
+    880
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT09:01:00Z','now','-112 days'))",
+   "params": [
+    "perf-ex-38",
+    "{{me}}",
+    15900,
+    "Winter boots",
+    "shopping",
+    "{{date:-112}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-088",
+    "perf-ex-38",
+    "{{me}}",
+    7950
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-089",
+    "perf-ex-38",
+    "{{partner}}",
+    7950
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:14:00Z','now','-114 days'))",
+   "params": [
+    "perf-ex-39",
+    "{{partner}}",
+    21350,
+    "Rental car",
+    "travel",
+    "{{date:-114}}",
+    "percent"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-090",
+    "perf-ex-39",
+    "{{me}}",
+    12810
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-091",
+    "perf-ex-39",
+    "{{partner}}",
+    8540
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT11:27:00Z','now','-118 days'))",
+   "params": [
+    "perf-ex-40",
+    "{{partner}}",
+    12600,
+    "Shared block party supplies",
+    "other",
+    "{{date:-118}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-092",
+    "perf-ex-40",
+    "{{me}}",
+    4200
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-093",
+    "perf-ex-40",
+    "{{partner}}",
+    4200
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-094",
+    "perf-ex-40",
+    "{{adult2}}",
+    4200
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT12:40:00Z','now','-120 days'))",
+   "params": [
+    "perf-ex-41",
+    "{{me}}",
+    17555,
+    "Weekly groceries",
+    "food",
+    "{{date:-120}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-095",
+    "perf-ex-41",
+    "{{me}}",
+    8777
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-096",
+    "perf-ex-41",
+    "{{partner}}",
+    8778
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT13:53:00Z','now','-124 days'))",
+   "params": [
+    "perf-ex-42",
+    "{{me}}",
+    13120,
+    "Electric bill",
+    "utilities",
+    "{{date:-124}}",
+    "category"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-097",
+    "perf-ex-42",
+    "{{me}}",
+    6560
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-098",
+    "perf-ex-42",
+    "{{partner}}",
+    6560
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT14:06:00Z','now','-126 days'))",
+   "params": [
+    "perf-ex-43",
+    "{{adult2}}",
+    2380,
+    "Coffee and pastries",
+    "food",
+    "{{date:-126}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-099",
+    "perf-ex-43",
+    "{{me}}",
+    793
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-100",
+    "perf-ex-43",
+    "{{partner}}",
+    793
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-101",
+    "perf-ex-43",
+    "{{adult2}}",
+    794
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT15:19:00Z','now','-130 days'))",
+   "params": [
+    "perf-ex-44",
+    "{{partner}}",
+    3410,
+    "Rideshare home",
+    "transport",
+    "{{date:-130}}",
+    "custom"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-102",
+    "perf-ex-44",
+    "{{me}}",
+    1023
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-103",
+    "perf-ex-44",
+    "{{partner}}",
+    2387
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT16:32:00Z','now','-132 days'))",
+   "params": [
+    "perf-ex-45",
+    "{{partner}}",
+    54000,
+    "Shared snow blower",
+    "household",
+    "{{date:-132}}",
+    "equal"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-104",
+    "perf-ex-45",
+    "{{me}}",
+    27000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-105",
+    "perf-ex-45",
+    "{{partner}}",
+    27000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-2 days'), strftime('%Y-%m-%dT19:20:00Z','now','-2 days'))",
+   "params": [
+    "perf-st-01",
+    "{{partner}}",
+    "{{me}}",
+    12500,
+    "Venmo for groceries"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-9 days'), strftime('%Y-%m-%dT19:20:00Z','now','-9 days'))",
+   "params": [
+    "perf-st-02",
+    "{{adult2}}",
+    "{{me}}",
+    8200,
+    "Cabin share"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-16 days'), strftime('%Y-%m-%dT19:20:00Z','now','-16 days'))",
+   "params": [
+    "perf-st-03",
+    "{{me}}",
+    "{{partner}}",
+    30600,
+    "Flights"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, settled_at, created_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-24 days'), strftime('%Y-%m-%dT19:20:00Z','now','-24 days'))",
+   "params": [
+    "perf-st-04",
+    "{{partner}}",
+    "{{me}}",
+    9400
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-31 days'), strftime('%Y-%m-%dT19:20:00Z','now','-31 days'))",
+   "params": [
+    "perf-st-05",
+    "{{me}}",
+    "{{adult2}}",
+    18000,
+    "Snow blower"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-40 days'), strftime('%Y-%m-%dT19:20:00Z','now','-40 days'))",
+   "params": [
+    "perf-st-06",
+    "{{partner}}",
+    "{{me}}",
+    15000,
+    "September utilities"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-52 days'), strftime('%Y-%m-%dT19:20:00Z','now','-52 days'))",
+   "params": [
+    "perf-st-07",
+    "{{adult2}}",
+    "{{partner}}",
+    4200,
+    "Block party"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, settled_at, created_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-63 days'), strftime('%Y-%m-%dT19:20:00Z','now','-63 days'))",
+   "params": [
+    "perf-st-08",
+    "{{me}}",
+    "{{partner}}",
+    7750
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-75 days'), strftime('%Y-%m-%dT19:20:00Z','now','-75 days'))",
+   "params": [
+    "perf-st-09",
+    "{{partner}}",
+    "{{me}}",
+    22000,
+    "Costco and dinner"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-88 days'), strftime('%Y-%m-%dT19:20:00Z','now','-88 days'))",
+   "params": [
+    "perf-st-10",
+    "{{adult2}}",
+    "{{me}}",
+    6000,
+    "Concert"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-101 days'), strftime('%Y-%m-%dT19:20:00Z','now','-101 days'))",
+   "params": [
+    "perf-st-11",
+    "{{me}}",
+    "{{partner}}",
+    11300,
+    "Hotel"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, settled_at, created_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT19:20:00Z','now','-118 days'), strftime('%Y-%m-%dT19:20:00Z','now','-118 days'))",
+   "params": [
+    "perf-st-12",
+    "{{partner}}",
+    "{{me}}",
+    5400
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-90 days'))",
+   "params": [
+    "perf-cr-1",
+    "health",
+    "{{me}}",
+    7000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-90 days'))",
+   "params": [
+    "perf-cr-2",
+    "health",
+    "{{partner}}",
+    3000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-90 days'))",
+   "params": [
+    "perf-cr-3",
+    "utilities",
+    "{{me}}",
+    5000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-90 days'))",
+   "params": [
+    "perf-cr-4",
+    "utilities",
+    "{{partner}}",
+    5000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-90 days'))",
+   "params": [
+    "perf-cr-5",
+    "travel",
+    "{{me}}",
+    6000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__category_splits (id, category, member_id, percent_bp, updated_at) VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-90 days'))",
+   "params": [
+    "perf-cr-6",
+    "travel",
+    "{{partner}}",
+    4000
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, expense_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-2 days'), strftime('%Y-%m-%dT10:30:00Z','now','-1 days'))",
+   "params": [
+    "perf-rb-01",
+    "{{partner}}",
+    "{{me}}",
+    14000,
+    "Dentist copay",
+    "perf-ex-17",
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-1 days'))",
+   "params": [
+    "perf-rb-01",
+    "{{partner}}",
+    "{{me}}",
+    1,
+    0,
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-4 days'), strftime('%Y-%m-%dT10:30:00Z','now','-3 days'))",
+   "params": [
+    "perf-rb-02",
+    "{{adult2}}",
+    "{{me}}",
+    6500,
+    "Your half of the fence stain",
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-3 days'))",
+   "params": [
+    "perf-rb-02",
+    "{{adult2}}",
+    "{{me}}",
+    1,
+    0,
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, expense_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-6 days'), strftime('%Y-%m-%dT10:30:00Z','now','-5 days'))",
+   "params": [
+    "perf-rb-03",
+    "{{partner}}",
+    "{{me}}",
+    3875,
+    "Pharmacy run",
+    "perf-ex-08",
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, note, status, locked_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-5 days'), strftime('%Y-%m-%dT10:30:00Z','now','-5 days'))",
+   "params": [
+    "perf-rb-03",
+    "{{partner}}",
+    "{{me}}",
+    1,
+    1,
+    3875,
+    "Pharmacy run",
+    "locked"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, expense_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-3 days'), strftime('%Y-%m-%dT10:30:00Z','now','-2 days'))",
+   "params": [
+    "perf-rb-04",
+    "{{me}}",
+    "{{partner}}",
+    9000,
+    "Physio session",
+    "perf-ex-27",
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-2 days'))",
+   "params": [
+    "perf-rb-04",
+    "{{me}}",
+    "{{partner}}",
+    1,
+    0,
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, expense_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-8 days'), strftime('%Y-%m-%dT10:30:00Z','now','-7 days'))",
+   "params": [
+    "perf-rb-05",
+    "{{me}}",
+    "{{adult2}}",
+    12600,
+    "Block party supplies I fronted",
+    "perf-ex-40",
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, note, status, locked_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-7 days'), strftime('%Y-%m-%dT10:30:00Z','now','-7 days'))",
+   "params": [
+    "perf-rb-05",
+    "{{me}}",
+    "{{adult2}}",
+    1,
+    1,
+    12600,
+    "Block party supplies I fronted",
+    "locked"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, expense_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-1 days'), strftime('%Y-%m-%dT10:30:00Z','now','+0 days'))",
+   "params": [
+    "perf-rb-06",
+    "{{partner}}",
+    "{{me}}",
+    2640,
+    "Prescription refill",
+    "perf-ex-37",
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','+0 days'))",
+   "params": [
+    "perf-rb-06",
+    "{{partner}}",
+    "{{me}}",
+    0,
+    1,
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, expense_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-30 days'), strftime('%Y-%m-%dT10:30:00Z','now','-29 days'))",
+   "params": [
+    "perf-rb-07",
+    "{{partner}}",
+    "{{me}}",
+    8500,
+    "Mum's birthday gift",
+    "perf-ex-18",
+    "settled"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, note, status, locked_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-29 days'), strftime('%Y-%m-%dT10:30:00Z','now','-29 days'))",
+   "params": [
+    "perf-rb-07",
+    "{{partner}}",
+    "{{me}}",
+    1,
+    1,
+    8500,
+    "Mum's birthday gift",
+    "locked"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, expense_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-45 days'), strftime('%Y-%m-%dT10:30:00Z','now','-44 days'))",
+   "params": [
+    "perf-rb-08",
+    "{{me}}",
+    "{{partner}}",
+    18000,
+    "Concert tickets",
+    "perf-ex-25",
+    "settled"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, note, status, locked_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-44 days'), strftime('%Y-%m-%dT10:30:00Z','now','-44 days'))",
+   "params": [
+    "perf-rb-08",
+    "{{me}}",
+    "{{partner}}",
+    1,
+    1,
+    18000,
+    "Concert tickets",
+    "locked"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-60 days'), strftime('%Y-%m-%dT10:30:00Z','now','-59 days'))",
+   "params": [
+    "perf-rb-09",
+    "{{adult2}}",
+    "{{me}}",
+    4200,
+    "Shared mulch delivery",
+    "settled"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, note, status, locked_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-59 days'), strftime('%Y-%m-%dT10:30:00Z','now','-59 days'))",
+   "params": [
+    "perf-rb-09",
+    "{{adult2}}",
+    "{{me}}",
+    1,
+    1,
+    4200,
+    "Shared mulch delivery",
+    "locked"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, expense_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-72 days'), strftime('%Y-%m-%dT10:30:00Z','now','-71 days'))",
+   "params": [
+    "perf-rb-10",
+    "{{me}}",
+    "{{partner}}",
+    7315,
+    "School supplies",
+    "perf-ex-28",
+    "settled"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, note, status, locked_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-71 days'), strftime('%Y-%m-%dT10:30:00Z','now','-71 days'))",
+   "params": [
+    "perf-rb-10",
+    "{{me}}",
+    "{{partner}}",
+    1,
+    1,
+    7315,
+    "School supplies",
+    "locked"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-50 days'), strftime('%Y-%m-%dT10:30:00Z','now','-49 days'))",
+   "params": [
+    "perf-rb-11",
+    "{{partner}}",
+    "{{me}}",
+    5000,
+    "Parking ticket",
+    "cancelled"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-49 days'))",
+   "params": [
+    "perf-rb-11",
+    "{{partner}}",
+    "{{me}}",
+    1,
+    0,
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-95 days'), strftime('%Y-%m-%dT10:30:00Z','now','-94 days'))",
+   "params": [
+    "perf-rb-12",
+    "{{me}}",
+    "{{adult2}}",
+    2500,
+    "Borrowed ladder rental",
+    "cancelled"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:30:00Z','now','-94 days'))",
+   "params": [
+    "perf-rb-12",
+    "{{me}}",
+    "{{adult2}}",
+    1,
+    0,
+    "pending"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, visibility, updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-70 days'))",
+   "params": [
+    "perf-ph-1",
+    "{{me}}",
+    "venmo",
+    "perf-admin",
+    "everyone"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, visibility, updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-70 days'))",
+   "params": [
+    "perf-ph-2",
+    "{{partner}}",
+    "paypal",
+    "perfpartner",
+    "everyone"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, visibility, updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT12:00:00Z','now','-70 days'))",
+   "params": [
+    "perf-ph-3",
+    "{{adult2}}",
+    "zelle",
+    "555-0142",
+    "everyone"
+   ]
+  }
+ ]
+}
