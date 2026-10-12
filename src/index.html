@@ -36,6 +36,8 @@
       line-height: 1.5;
     }
     .app-container { max-width: 600px; margin: 0 auto; padding: 14px 14px 80px; }
+    .load-error { margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; background: var(--hub-tint-danger, #fee2e2); color: var(--hub-tint-danger-fg, #b91c1c); font-size: 0.9rem; display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .load-error-retry { background: none; border: 1px solid currentColor; border-radius: 8px; padding: 5px 10px; font: inherit; font-weight: 600; color: inherit; cursor: pointer; flex-shrink: 0; }
 
     /* ── Header ──────────────────────────────────────────── */
     .header {
@@ -487,10 +489,8 @@
   <div id="widget-root" hidden></div>
 
   <!-- Error state -->
-  <div id="error-state" hidden style="padding:40px 20px;text-align:center">
-    <div id="error-glyph" style="font-size:2rem;margin-bottom:10px"></div>
-    <div id="error-msg" style="color:var(--red-ink);font-weight:600"></div>
-    <button class="btn btn-ghost" style="margin-top:16px" onclick="location.reload()">Retry</button>
+  <div id="error-state" class="app-container" hidden>
+    <div class="load-error" data-testid="load-error" role="alert"><span>Couldn’t load your expenses.</span> <button type="button" class="load-error-retry" data-testid="load-retry">Try again</button></div>
   </div>
 
   <!-- Main content -->
@@ -569,7 +569,6 @@ import {
 } from './logic.js';
 
 document.getElementById('header-glyph').innerHTML = glyph('split');
-document.getElementById('error-glyph').innerHTML = glyph('warning');
 
 /* ── Runtime globals ─────────────────────────────────── */
 const CONTEXT    = window.__CONTEXT_URL ?? '';
@@ -663,6 +662,10 @@ let categorySplits = [];   // saved per-category default percentages
 let requests       = [];   // reimbursement requests, merged with their agreements
 let paymentHandles = [];   // one row per member: where to send them money
 let handles        = new Map();
+// A side read that failed: the page says so (or hides the control) rather
+// than calling it none.
+let requestsFailed = false;
+let handlesFailed  = false;
 
 let activeTab      = 'balances';
 let activeCategory = 'all';
@@ -683,8 +686,9 @@ async function db(sql, params = []) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sql, params }),
   });
-  if (!res.ok) throw new Error(`DB error ${res.status}`);
-  return res.json();
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json || typeof json !== "object" || json.error) throw new Error(json?.error || 'Couldn’t reach the hub. Try again.');
+  return json;
 }
 
 /** Several statements in ONE D1 transaction — api/db takes `{statements:[…]}`
@@ -698,8 +702,9 @@ async function dbBatch(statements) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ statements }),
   });
-  if (!res.ok) throw new Error(`DB error ${res.status}`);
-  return res.json();
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json || typeof json !== "object" || json.error) throw new Error(json?.error || 'Couldn’t reach the hub. Try again.');
+  return json;
 }
 
 /* ── Init ────────────────────────────────────────────── */
@@ -739,8 +744,8 @@ async function init() {
       const exp = expenses.find(e => e.id === expenseId);
       if (exp) openDetailModal(exp.id);
     }
-  } catch (e) {
-    showError(e.message);
+  } catch {
+    showError();
   }
 }
 
@@ -751,7 +756,10 @@ async function loadMembers() {
     return;
   }
   const res = await fetch(`${CONTEXT}?keys=family.members`);
-  const ctx = await res.json();
+  const ctx = await res.json().catch(() => null);
+  if (!res.ok || !ctx || typeof ctx !== 'object' || ctx.error) throw new Error('Couldn’t reach the hub. Try again.');
+  // The hub answers 200 and names a key it could not resolve in $errors: that read failed too.
+  if (Array.isArray(ctx.$errors) && ctx.$errors.includes('family.members')) throw new Error('Couldn’t reach the hub. Try again.');
   members   = ctx['family.members'] ?? [];
   memberMap = new Map(members.map(m => [m.id, m]));
 }
@@ -767,12 +775,16 @@ async function loadData() {
   // are both governed, so a JOIN across them is rejected — load both and merge
   // by id, the same shape co-parenting uses for swaps. All six reads are
   // independent, so they go out together rather than in two waves.
+  requestsFailed = false;
+  handlesFailed  = false;
+  const noRequests = () => { requestsFailed = true; return { rows: [] }; };
   const [eRes, sRes, pRes, cRes, rRes, aRes, hRes] = await Promise.all([
     db('SELECT * FROM app_expense_splitter__expenses    ORDER BY date DESC, created_at DESC'),
     db('SELECT * FROM app_expense_splitter__expense_splits'),
     db('SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC'),
-    db('SELECT * FROM app_expense_splitter__category_splits').catch(() => ({ rows: [] })),
-    db('SELECT * FROM app_expense_splitter__reimbursements ORDER BY created_at DESC').catch(() => ({ rows: [] })),
+    // The saved default splits: a failed read is a failed load, never "none saved".
+    db('SELECT * FROM app_expense_splitter__category_splits'),
+    db('SELECT * FROM app_expense_splitter__reimbursements ORDER BY created_at DESC').catch(noRequests),
     // NOT issued at all for a non-adult. The table is endpoint_only with
     // read:"adult", so a child's request is refused — and while the .catch
     // below would swallow the rejection, the BROWSER still records the failed
@@ -781,9 +793,9 @@ async function loadData() {
     // failure in the e2e error collector, for a read whose answer is known to
     // be "none of them" before it is sent.
     IS_ADULT
-      ? db('SELECT * FROM app_expense_splitter__reimbursement_agreements').catch(() => ({ rows: [] }))
+      ? db('SELECT * FROM app_expense_splitter__reimbursement_agreements').catch(noRequests)
       : Promise.resolve({ rows: [] }),
-    db('SELECT * FROM app_expense_splitter__payment_handles').catch(() => ({ rows: [] })),
+    db('SELECT * FROM app_expense_splitter__payment_handles').catch(() => { handlesFailed = true; return { rows: [] }; }),
   ]);
   expenses       = eRes.rows;
   splits         = sRes.rows;
@@ -821,11 +833,18 @@ function showMain() {
   // UI matches the backend instead of failing silently after an optimistic add.
   if (!IS_ADULT) document.getElementById('add-btn').hidden = true;
 }
-function showError(msg) {
+// The failed first load: the banner alone, with nothing of the app under it
+// to read as "no expenses" or to write through. "Try again" re-runs init().
+function showError() {
   document.getElementById('skeleton-state').hidden = true;
+  document.getElementById('main-content').hidden   = true;
   document.getElementById('error-state').hidden    = false;
-  document.getElementById('error-msg').textContent = msg;
 }
+document.querySelector('[data-testid="load-retry"]').addEventListener('click', () => {
+  document.getElementById('error-state').hidden    = true;
+  document.getElementById('skeleton-state').hidden = false;
+  init();
+});
 
 /* ── Tab switching ───────────────────────────────────── */
 window._switchTab = function(tab) {
@@ -1068,6 +1087,14 @@ function renderRequests() {
   if (!el) return;
   document.getElementById('request-btn').hidden = !IS_ADULT;
   document.getElementById('rules-btn').hidden   = !IS_ADULT;
+  // Unread handles: no blank "How to pay me" form to save over the stored one.
+  document.getElementById('pay-btn').hidden     = handlesFailed;
+
+  // Unread requests or agreements: neither "none" nor "pending" is known.
+  if (requestsFailed) {
+    el.innerHTML = `<div class="empty-state"><p>Couldn’t load reimbursement requests.</p></div>`;
+    return;
+  }
 
   if (!requests.length) {
     el.innerHTML = `<div class="empty-state">
@@ -2285,13 +2312,16 @@ window._agreeRequest = async function(id) {
 window._cancelRequest = async function(id) {
   if (!await hubConfirm('Cancel this request?')) return;
   try {
-    await db(
+    const { changed } = await db(
       'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ?',
       ['cancelled', new Date().toISOString(), id]
     );
     await loadData();
     recompute();
     renderAll();
+    // A request already settled or cancelled is frozen: the hub answers 200
+    // and changes nothing.
+    if (changed === 0) { toast('This request can no longer be cancelled.', 'error'); return; }
     toast('Request cancelled', 'success');
   } catch (e) {
     toast(`Could not cancel: ${e.message}`, 'error');
@@ -2308,17 +2338,15 @@ window._settleRequest = async function(id) {
   const sid = crypto.randomUUID();
   const now = new Date().toISOString();
   try {
-    await db(
-      'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
-      [sid, r.payer_id, r.requester_id, r.amount_cents, r.note ?? '', now, now]
-    );
-    // Ordered second on purpose: if this fails the request stays 'locked' and
-    // shows the button again, which is visible and fixable. The reverse order
-    // could close the request with no settlement behind it.
-    await db(
-      'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ?',
-      ['settled', now, id]
-    );
+    // One transaction: the request closes only while it is still 'locked', and
+    // the settlement lands only if it did. Both parties pressing the button
+    // cannot record the payment twice, and neither half can stand alone.
+    await dbBatch([
+      { sql: 'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ? AND status = ?',
+        params: ['settled', now, id, 'locked'], requireChanges: true },
+      { sql: 'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
+        params: [sid, r.payer_id, r.requester_id, r.amount_cents, r.note ?? '', now, now] },
+    ]);
     await loadData();
     recompute();
     renderAll();
@@ -2327,6 +2355,12 @@ window._settleRequest = async function(id) {
       from_id: r.payer_id, to_id: r.requester_id, amount_cents: r.amount_cents,
     });
   } catch (e) {
+    // An unmet requireChanges rolls the batch back: someone closed the request first.
+    if (/stale state/i.test(String(e.message))) {
+      try { await loadData(); recompute(); renderAll(); } catch { /* keep what is shown */ }
+      toast('This request was already settled or cancelled.', 'error');
+      return;
+    }
     toast(`Could not record payment: ${e.message}`, 'error');
   }
 };
