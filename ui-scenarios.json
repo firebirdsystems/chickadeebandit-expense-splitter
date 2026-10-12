@@ -17,7 +17,7 @@
         },
         {
           "action": "seedRaw",
-          "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, status, updated_at) VALUES ('es-r', ?, ?, 1, 0, 'pending', '2026-08-01T09:00:00Z')",
+          "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, status, updated_at) VALUES ('es-r', ?, ?, 1, 0, 2500, 'pending', '2026-08-01T09:00:00Z')",
           "params": [
             "{{requester}}",
             "{{payer}}"
@@ -694,6 +694,379 @@
           "as": "a",
           "selector": ".modal-sheet",
           "text": "Category rule"
+        }
+      ]
+    },
+    {
+      "name": "a request changed after it was confirmed shows the confirmed amount, says what it reads now, and offers no confirm; once both have confirmed, the recorded amount and note are what the card shows and records as paid",
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "requester"
+        },
+        {
+          "action": "expectVisible",
+          "as": "requester",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "requester",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "requester",
+          "selector": "#request-btn"
+        },
+        {
+          "action": "select",
+          "as": "requester",
+          "selector": "#r-payer",
+          "value": "{{payer}}"
+        },
+        {
+          "action": "fill",
+          "as": "requester",
+          "selector": "#r-amount",
+          "value": "50"
+        },
+        {
+          "action": "fill",
+          "as": "requester",
+          "selector": "#r-note",
+          "value": "Dentist"
+        },
+        {
+          "action": "click",
+          "as": "requester",
+          "selector": "#r-submit"
+        },
+        {
+          "action": "expectText",
+          "as": "requester",
+          "selector": "[data-testid=\"request-card\"] [data-testid=\"request-amount\"]",
+          "text": "$50"
+        },
+        {
+          "action": "expectText",
+          "as": "requester",
+          "selector": "[data-testid=\"request-hint\"]",
+          "text": "Waiting on them"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "UPDATE app_expense_splitter__reimbursements SET amount_cents = 8000 WHERE requester_id = ?",
+          "params": [
+            "{{requester}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "payer"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"] [data-testid=\"request-amount\"]",
+          "text": "$50"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"terms-changed\"]",
+          "text": "now reads $80"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-hint\"]",
+          "text": "Changed since it was confirmed"
+        },
+        {
+          "action": "expectCount",
+          "as": "payer",
+          "selector": "[data-testid=\"confirm-btn\"]",
+          "count": 0
+        },
+        {
+          "action": "seedRaw",
+          "sql": "UPDATE app_expense_splitter__reimbursements SET amount_cents = 5000 WHERE requester_id = ?",
+          "params": [
+            "{{requester}}"
+          ]
+        },
+        {
+          "action": "reload",
+          "as": "payer"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-hint\"]",
+          "text": "They confirmed"
+        },
+        {
+          "action": "expectCount",
+          "as": "payer",
+          "selector": "[data-testid=\"terms-changed\"]",
+          "count": 0
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"confirm-btn\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"] .badge",
+          "text": "Confirmed"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "UPDATE app_expense_splitter__reimbursements SET amount_cents = 9900, note = ? WHERE requester_id = ?",
+          "params": [
+            "Orthodontist",
+            "{{requester}}"
+          ]
+        },
+        {
+          "action": "reload",
+          "as": "payer"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"] .badge",
+          "text": "Confirmed"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"] [data-testid=\"request-amount\"]",
+          "text": "$50"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"]",
+          "text": "Dentist"
+        },
+        {
+          "action": "expectNoText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"]",
+          "text": "Orthodontist"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"settle-btn\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "#conf-yes >> xpath=ancestor::div[contains(@class,'modal-body')]",
+          "text": "Record $50 as paid?"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "#conf-yes"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"] .badge",
+          "text": "Settled"
+        },
+        {
+          "action": "reload",
+          "as": "payer"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"] .badge",
+          "text": "Settled"
+        },
+        {
+          "action": "expectHidden",
+          "as": "payer",
+          "selector": "[data-testid=\"settle-btn\"]"
+        }
+      ]
+    },
+    {
+      "name": "confirming a request whose amount changed while the card was open confirms nothing and shows the amount it reads now",
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, status, created_at, updated_at) VALUES ('es-x', ?, ?, 2500, 'pending', '2026-08-01T09:00:00Z', '2026-08-01T09:00:00Z')",
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "payer"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"][data-request-id=\"es-x\"] [data-testid=\"request-amount\"]",
+          "text": "$25"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-x\"]",
+          "text": "Neither side has confirmed"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "UPDATE app_expense_splitter__reimbursements SET amount_cents = 9000 WHERE id = 'es-x'"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"confirm-btn\"][data-request-id=\"es-x\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": ".toast-error",
+          "text": "nothing was confirmed"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"][data-request-id=\"es-x\"] [data-testid=\"request-amount\"]",
+          "text": "$90"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-x\"]",
+          "text": "Neither side has confirmed"
+        },
+        {
+          "action": "reload",
+          "as": "payer"
+        },
+        {
+          "action": "expectVisible",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-x\"]",
+          "text": "Neither side has confirmed"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"confirm-btn\"][data-request-id=\"es-x\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-x\"]",
+          "text": "Waiting on them"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"][data-request-id=\"es-x\"] [data-testid=\"request-amount\"]",
+          "text": "$90"
+        },
+        {
+          "action": "open",
+          "as": "requester"
+        },
+        {
+          "action": "expectVisible",
+          "as": "requester",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "requester",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "requester",
+          "selector": "[data-testid=\"request-card\"][data-request-id=\"es-x\"] [data-testid=\"request-amount\"]",
+          "text": "$90"
+        },
+        {
+          "action": "expectText",
+          "as": "requester",
+          "selector": "[data-testid=\"request-hint\"][data-request-id=\"es-x\"]",
+          "text": "They confirmed"
         }
       ]
     }

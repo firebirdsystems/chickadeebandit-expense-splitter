@@ -781,6 +781,92 @@
           "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "id": "st1" }] }
         }
       ]
+    },
+    {
+      "name": "the amount recorded with the first confirmation is not moved by a later edit to the request, and neither party can rewrite it",
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, status, created_at, updated_at) VALUES ('rb9', ?, ?, 5000, 'pending', '2026-07-19T10:00:00Z', '2026-07-19T10:00:00Z')",
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, status, updated_at) VALUES ('rb9', ?, ?, 1, 0, 5000, 'pending', '2026-07-19T10:00:00Z')",
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "UPDATE app_expense_splitter__reimbursements SET amount_cents = ? WHERE id = ? RETURNING id",
+          "params": [
+            8000,
+            "rb9"
+          ],
+          "_comment": "party_scoped: either party may still edit a pending request. The app shows the recorded amount and says the request has changed.",
+          "expect": {
+            "status": 200,
+            "rowCount": 1
+          }
+        },
+        {
+          "action": "db",
+          "as": "payer",
+          "sql": "SELECT amount_cents, requester_agreed FROM app_expense_splitter__reimbursement_agreements WHERE id = ?",
+          "params": [
+            "rb9"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "amount_cents": 5000,
+                "requester_agreed": 1
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "payer",
+          "sql": "SELECT amount_cents FROM app_expense_splitter__reimbursements WHERE id = ?",
+          "params": [
+            "rb9"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "amount_cents": 8000
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "requester",
+          "sql": "UPDATE app_expense_splitter__reimbursement_agreements SET amount_cents = ? WHERE id = ?",
+          "params": [
+            8000,
+            "rb9"
+          ],
+          "expect": {
+            "status": 403
+          }
+        }
+      ]
     }
   ]
 }

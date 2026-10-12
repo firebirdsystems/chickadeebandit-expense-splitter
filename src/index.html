@@ -192,6 +192,7 @@
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px;
     }
     .request-hint    { font-size: .78rem; color: var(--muted); }
+    .request-changed { font-size: .8rem; color: var(--hub-tint-warning-fg, #92400e); margin: 8px 0 0; line-height: 1.4; }
     .request-actions { margin-left: auto; display: flex; gap: 6px; }
     .badge {
       font-size: .68rem; font-weight: 700; padding: 2px 8px; border-radius: 20px;
@@ -560,7 +561,7 @@ import {
   CATEGORIES, categoryFor,
   computeBalances, simplifyDebts, computeSplits, validateCustomSplits,
   fmtSplit, fmtDate,
-  computeSplitsWithCategory, reimbursementStatus, validateReimbursement,
+  computeSplitsWithCategory, reimbursementStatus, reimbursementTerms, validateReimbursement,
   validateCategoryPercents, TOTAL_BP, searchableFields,
   SPLIT_METHODS, splitTypeLabel, validateShares, sharesError, MAX_SHARES,
   CATEGORY_RULE_SPLIT, apportionByShares, apportionByPercent,
@@ -807,15 +808,24 @@ async function loadData() {
   const agrById = new Map(aRes.rows.map(a => [a.id, a]));
   requests = rRes.rows.map(r => {
     const agr = agrById.get(r.id);
+    const status = reimbursementStatus(r, agr);
+    const terms  = reimbursementTerms(r, agr);
     return {
       ...r,
-      status: reimbursementStatus(r, agr),
+      status,
       requester_agreed: agr?.requester_agreed ? 1 : 0,
       payer_agreed:     agr?.payer_agreed ? 1 : 0,
       locked_at:        agr?.locked_at ?? null,
-      // Once locked, the snapshot is what both parties actually agreed to.
-      amount_cents: agr?.status === 'locked' && agr.amount_cents != null
-        ? agr.amount_cents : r.amount_cents,
+      // From the first confirmation on, the amount and note are the ones the
+      // hub recorded with it: that is what a second confirmation locks, and
+      // what stays agreed afterwards. The row's own are kept only to say so
+      // when they have come apart (terms_changed).
+      amount_cents: terms.amount_cents,
+      note:         terms.note,
+      terms_recorded: terms.recorded,
+      terms_changed:  status === 'pending' && terms.changed,
+      row_amount_cents: r.amount_cents,
+      row_note:         r.note ?? '',
     };
   });
 }
@@ -1122,7 +1132,9 @@ function requestCard(r) {
 
   const actions = [];
   if (r.status === 'pending' && IS_ADULT) {
-    if (!iAgreed) actions.push(`<button class="btn-sm btn-primary" data-testid="confirm-btn" data-request-id="${esc(r.id)}" data-action="agreeRequest" data-request="${esc(r.id)}">Confirm</button>`);
+    // Not while the request reads differently from what was confirmed: there
+    // is nothing on this card both sides could be confirming.
+    if (!iAgreed && !r.terms_changed) actions.push(`<button class="btn-sm btn-primary" data-testid="confirm-btn" data-request-id="${esc(r.id)}" data-action="agreeRequest" data-request="${esc(r.id)}">Confirm</button>`);
     // Either party may cancel, not just the requester. A pending request locks
     // only once BOTH sides confirm, and the hub's agree endpoint has no roster
     // awareness — so if the requester leaves the household, a payer who could
@@ -1132,7 +1144,7 @@ function requestCard(r) {
     actions.push(`<button class="btn-sm" data-action="cancelRequest" data-request="${esc(r.id)}">Cancel</button>`);
   }
   if (r.status === 'locked' && IS_ADULT) {
-    actions.push(`<button class="btn-sm btn-primary" data-action="settleRequest" data-request="${esc(r.id)}">Record payment</button>`);
+    actions.push(`<button class="btn-sm btn-primary" data-testid="settle-btn" data-action="settleRequest" data-request="${esc(r.id)}">Record payment</button>`);
   }
 
   return `
@@ -1142,31 +1154,52 @@ function requestCard(r) {
           <div class="request-title">${mine ? 'You asked' : 'Asked of you by'} ${esc(memberName(other))}</div>
           <div class="request-sub">${esc(r.note || 'Shared cost')} · ${esc(fmtDate(r.created_at?.slice(0, 10)))}</div>
         </div>
-        <div class="request-amount">${fmtMoney(r.amount_cents)}</div>
+        <div class="request-amount" data-testid="request-amount">${fmtMoney(r.amount_cents)}</div>
       </div>
       <div class="request-foot">
         <span class="badge ${badge[0]}">${esc(badge[1])}</span>
         ${r.status === 'pending'
-          ? `<span class="request-hint" data-testid="request-hint" data-request-id="${esc(r.id)}">${iAgreed ? 'Waiting on them' : theyAgreed ? 'They confirmed — your turn' : 'Neither side has confirmed'}</span>`
+          ? `<span class="request-hint" data-testid="request-hint" data-request-id="${esc(r.id)}">${r.terms_changed ? 'Changed since it was confirmed' : iAgreed ? 'Waiting on them' : theyAgreed ? 'They confirmed — your turn' : 'Neither side has confirmed'}</span>`
           : ''}
         <span class="request-actions">${actions.join('')}</span>
       </div>
+      ${r.terms_changed ? `<p class="request-changed" data-testid="terms-changed" data-request-id="${esc(r.id)}">${esc(termsChangedText(r))}</p>` : ''}
       ${r.status === 'locked' && r.payer_id === ME.id
         ? payBlock(r.requester_id, r.amount_cents, r.note || '')
         : ''}
     </div>`;
 }
 
+// A pending request whose row no longer reads as it did when it was confirmed.
+// The card shows what was confirmed; this says what the row says now.
+function termsChangedText(r) {
+  if (!r.terms_recorded) return 'This request was confirmed before its amount was recorded. Cancel it and send a new one.';
+  const now = r.row_note !== (r.note ?? '')
+    ? `${fmtMoney(r.row_amount_cents)} for “${r.row_note || 'Shared cost'}”` : fmtMoney(r.row_amount_cents);
+  return `This request was changed after it was confirmed and now reads ${now}. Nobody has confirmed that. Cancel it and send a new one.`;
+}
+
 function memberName(id) { return memberMap.get(id)?.name ?? 'Someone'; }
 
-async function agreeOnServer(id, agreed) {
+// The terms as a card shows them, in the shape the hub records them
+// (manifest agreements.snapshot_columns): integer cents, and the note exactly
+// as stored — an empty note is '' on a request and stays ''.
+function termsOf(r) {
+  return { amount_cents: r.amount_cents, note: r.note ?? null };
+}
+
+// `terms` are the terms this page is showing: the hub refuses the
+// confirmation (409) when the terms it holds, or would record, are not those.
+async function agreeOnServer(id, agreed, terms) {
   const res = await fetch(`/run/${APP_ID}/api/agree`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ table: 'reimbursement_agreements', id, agreed }),
+    body: JSON.stringify({ table: 'reimbursement_agreements', id, agreed, ...(terms ? { expected_snapshot: terms } : {}) }),
   });
   if (!res.ok) {
-    throw new Error((await res.json().catch(() => ({}))).error || 'Could not record your confirmation');
+    const err = new Error((await res.json().catch(() => ({}))).error || 'Could not record your confirmation');
+    err.status = res.status;
+    throw err;
   }
 }
 
@@ -1320,8 +1353,27 @@ function closeModal() {
   const el = modalEl;
   setTimeout(() => { el.remove(); }, 200);
   modalEl = null;
+  el.onClose?.();
 }
 window._closeModal = closeModal;
+
+// A save belongs to the modal it started in. That modal can be dismissed, and
+// another opened, before the hub answers — so the answer closes or writes into
+// its own modal only, never whichever one happens to be open by then.
+function closeModalIfCurrent(origin) {
+  if (modalEl === origin) closeModal();
+}
+
+// A save the hub refused: the form stays open as typed, says so in its own
+// error line, and its button works again. A form that was dismissed meanwhile
+// has no line left to read, so that one is a toast.
+function saveFailed(origin, btn, label) {
+  if (origin) delete origin.dataset.saving;
+  const line = modalEl === origin ? origin?.querySelector('[data-form-error]') : null;
+  if (line) { line.textContent = 'Couldn’t save — try again.'; line.hidden = false; }
+  else toast('Couldn’t save — try again.', 'error');
+  if (btn) { btn.disabled = false; btn.textContent = label; }
+}
 
 /* ── Add Expense modal ───────────────────────────────── */
 
@@ -1340,7 +1392,20 @@ const f = {
   receiptFileId: null,
 };
 
+// An uploaded receipt that no expense row points to is deleted, not left in
+// the household's storage. Best-effort: nothing on screen depends on it.
+function reclaimReceipt(id) {
+  if (id) FILES.delete(id).catch(() => {});
+}
+
+// Bumped on every pick, so an upload that finishes after a later pick knows it
+// lost and removes itself.
+let receiptPick = 0;
+
 window._openAdd = function() {
+  // Before the reset below: closing the form that is open now is what reclaims
+  // ITS receipt, and it reads f to find it.
+  closeModal();
   f.category   = 'other';
   f.paidBy     = ME.id;
   f.splitAmong = new Set(members.map(m => m.id));
@@ -1409,11 +1474,22 @@ window._openAdd = function() {
         </div>
       </div>` : ''}
     </div>
+    <div class="split-remaining bad" data-form-error data-testid="modal-error" role="alert" style="text-align:left;padding:0 20px 10px" hidden></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
       <button class="btn btn-primary" id="f-save-btn" data-action="submitExpense" disabled>Save Expense</button>
     </div>
   `);
+
+  // Closing this form abandons whatever receipt it holds that no save has
+  // taken. form.savedReceipt is the one a save in flight, or one that worked,
+  // carries — that file is the save's. Anything else is ours to remove,
+  // including a replacement picked while that save was still running.
+  const form = modalEl;
+  form.onClose = () => {
+    if (f.receiptFileId !== form.savedReceipt) reclaimReceipt(f.receiptFileId);
+    f.receiptFileId = null;
+  };
 
   renderFormPills();
   updateFormPreview();
@@ -1453,15 +1529,23 @@ window._setCategory = function(id) {
 // Receipts upload immediately so the DB row is never written pointing at a file
 // that failed to store. f.receiptFileId is cleared and re-set on every pick.
 window._onReceiptPicked = async function() {
+  const origin = modalEl;
+  const pick   = ++receiptPick;
   const input  = document.getElementById('f-receipt');
   const status = document.getElementById('f-receipt-status');
   const file   = input?.files?.[0];
+  // The receipt this pick replaces has nothing pointing at it — unless it is
+  // the one a save in flight carries, which that save settles either way.
+  if (f.receiptFileId !== origin?.savedReceipt) reclaimReceipt(f.receiptFileId);
   f.receiptFileId = null;
   if (!file) { if (status) status.textContent = ''; return; }
 
   if (status) status.textContent = 'Uploading…';
   try {
     const { id } = await FILES.upload(file);
+    // The form was closed, or another file picked, while this one uploaded:
+    // f is no longer this pick's to write to.
+    if (modalEl !== origin || pick !== receiptPick) { reclaimReceipt(id); return; }
     f.receiptFileId = id;
     if (status) status.textContent = '✓ Attached';
   } catch (e) {
@@ -1700,7 +1784,7 @@ function updateCustomRemaining() {
 }
 
 function validateForm() {
-  const btn = document.getElementById('f-save-btn');
+  const btn = modalEl?.querySelector('#f-save-btn');
   if (!btn) return;
   const amountCents  = getAmountCents();
   const splitMembers = [...f.splitAmong];
@@ -1717,10 +1801,14 @@ function validateForm() {
     valid = validateCategoryPercents(
       splitMembers.map(id => ({ member_id: id, percent_bp: f.weights[id] ?? 0 })));
   }
-  btn.disabled = !valid;
+  // The form stays editable while its save is in flight; an edit must not
+  // hand back a live Save button for a second copy of the same expense.
+  btn.disabled = !valid || modalEl?.dataset.saving === '1';
 }
 
 window._submitExpense = async function() {
+  const origin = modalEl;
+  if (origin?.dataset.saving === '1') return;
   const amountCents  = getAmountCents();
   const description  = document.getElementById('f-desc')?.value.trim() || 'Expense';
   const date         = document.getElementById('f-date')?.value || hubToday();
@@ -1738,13 +1826,15 @@ window._submitExpense = async function() {
   const { splits: splitResult, source: splitSource } = computeSplitsWithCategory(
     amountCents, splitMembers, f.splitType, customCents, categorySplits, f.category, f.weights);
 
-  const btn = document.getElementById('f-save-btn');
+  const btn = origin?.querySelector('#f-save-btn');
+  if (origin) origin.dataset.saving = '1';
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
   const expId = crypto.randomUUID();
   const now   = new Date().toISOString();
 
   const receiptFileId = f.receiptFileId ?? null;
+  if (origin) origin.savedReceipt = receiptFileId;
   const newExp = {
     id: expId, paid_by: f.paidBy, amount_cents: amountCents,
     description, category: f.category, date, split_type: splitSource, created_at: now,
@@ -1755,42 +1845,45 @@ window._submitExpense = async function() {
     member_id: s.member_id, amount_cents: s.amount_cents,
   }));
 
-  // Optimistic update
+  // The form stays open until the hub has the expense: a refused save leaves
+  // what was typed (and the attached receipt) in place to send again, and
+  // nothing is drawn in the list for an expense the hub never got.
+  //
+  // One atomic batch, so a retry can never land beside an expense row whose
+  // splits failed to follow it.
+  try {
+    const statements = [{
+      sql: 'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id) VALUES (?,?,?,?,?,?,?,?,?)',
+      params: [expId, f.paidBy, amountCents, description, f.category, date, splitSource, now, receiptFileId],
+    }];
+    if (newSplits.length > 0) {
+      const placeholders = newSplits.map(() => '(?,?,?,?)').join(',');
+      statements.push({
+        sql: `INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES ${placeholders}`,
+        params: newSplits.flatMap(s => [s.id, s.expense_id, s.member_id, s.amount_cents]),
+      });
+    }
+    await dbBatch(statements);
+  } catch {
+    saveFailed(origin, btn, 'Save Expense');
+    if (origin) delete origin.savedReceipt;
+    // The receipt is kept only for a form that can still send it again. One
+    // dismissed, or re-pointed at another file, while the save ran cannot.
+    if (modalEl !== origin || f.receiptFileId !== receiptFileId) reclaimReceipt(receiptFileId);
+    // The form may have been edited into an invalid state while it saved.
+    if (modalEl === origin) validateForm();
+    return;
+  }
+
   expenses = [newExp, ...expenses];
   splits   = [...splits, ...newSplits];
   recompute();
-  closeModal();
+  closeModalIfCurrent(origin);
   renderAll();
-
-  // Persist in background
-  try {
-    await db(
-      'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id) VALUES (?,?,?,?,?,?,?,?,?)',
-      [expId, f.paidBy, amountCents, description, f.category, date, splitSource, now, receiptFileId]
-    );
-    if (newSplits.length > 0) {
-      const placeholders = newSplits.map(() => '(?,?,?,?)').join(',');
-      const params = newSplits.flatMap(s => [s.id, s.expense_id, s.member_id, s.amount_cents]);
-      await db(
-        `INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES ${placeholders}`,
-        params
-      );
-    }
-    logActivity('finance_transaction_added', `${ME.name} added "${description}"`, {
-      deepLink: { appId: APP_ID, params: { expenseId: expId } },
-    });
-    publishEvent('expense.created', expId, { description, amount_cents: amountCents });
-  } catch (e) {
-    // Roll back optimistic update
-    expenses = expenses.filter(ex => ex.id !== expId);
-    splits   = splits.filter(s => s.expense_id !== expId);
-    // The receipt uploaded fine but has no row pointing at it now — drop it
-    // rather than leaving an orphan counting against the storage quota.
-    if (receiptFileId) FILES.delete(receiptFileId).catch(() => {});
-    recompute();
-    renderAll();
-    toast(`Failed to save expense: ${e.message}`, 'error');
-  }
+  logActivity('finance_transaction_added', `${ME.name} added "${description}"`, {
+    deepLink: { appId: APP_ID, params: { expenseId: expId } },
+  });
+  publishEvent('expense.created', expId, { description, amount_cents: amountCents });
 };
 
 /* ── Expense Detail modal ────────────────────────────── */
@@ -1940,6 +2033,7 @@ window._openSettle = function(fromId, toId, suggestedCents) {
       </div>
       ${fromId === ME.id ? `<div id="s-pay" style="margin-top:16px">${payBlock(toId, suggestedCents)}</div>` : ''}
     </div>
+    <div class="split-remaining bad" data-form-error data-testid="modal-error" role="alert" style="text-align:left;padding:0 20px 10px" hidden></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
       <button class="btn btn-primary" data-action="submitSettlement" data-from="${esc(fromId)}" data-to="${esc(toId)}">Record Payment</button>
@@ -1961,6 +2055,8 @@ window._onSettleAmount = function(toId) {
 };
 
 window._submitSettlement = async function(fromId, toId) {
+  const origin = modalEl;
+  if (origin?.dataset.saving === '1') return;
   const val = parseFloat(document.getElementById('s-amount')?.value || '0');
   if (!val || val <= 0) return;
   const amountCents = Math.round(val * 100);
@@ -1970,28 +2066,30 @@ window._submitSettlement = async function(fromId, toId) {
 
   const newSettlement = { id, from_id: fromId, to_id: toId, amount_cents: amountCents, note: '', settled_at: now, created_at: now };
 
-  // Optimistic update
-  settlements = [newSettlement, ...settlements];
-  recompute();
-  closeModal();
-  renderAll();
-  toast('Payment recorded', 'success');
-
+  // As in _submitExpense: the form stays open, and nothing reads "recorded",
+  // until the hub has the payment.
+  const btn = origin?.querySelector('[data-action="submitSettlement"]');
+  if (origin) origin.dataset.saving = '1';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
     await db(
       'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
       [id, fromId, toId, amountCents, '', now, now]
     );
-    const fromName = memberMap.get(fromId)?.name ?? fromId;
-    const toName   = memberMap.get(toId)?.name   ?? toId;
-    logActivity('finance_transaction_added', `${fromName} paid ${toName} ${fmtMoney(amountCents)}`, {});
-    publishEvent('expense.settled', id, { from_id: fromId, to_id: toId, amount_cents: amountCents });
-  } catch (e) {
-    settlements = settlements.filter(s => s.id !== id);
-    recompute();
-    renderAll();
-    toast(`Failed to record payment: ${e.message}`, 'error');
+  } catch {
+    saveFailed(origin, btn, 'Record Payment');
+    return;
   }
+
+  settlements = [newSettlement, ...settlements];
+  recompute();
+  closeModalIfCurrent(origin);
+  renderAll();
+  toast('Payment recorded', 'success');
+  const fromName = memberMap.get(fromId)?.name ?? fromId;
+  const toName   = memberMap.get(toId)?.name   ?? toId;
+  logActivity('finance_transaction_added', `${fromName} paid ${toName} ${fmtMoney(amountCents)}`, {});
+  publishEvent('expense.settled', id, { from_id: fromId, to_id: toId, amount_cents: amountCents });
 };
 
 /* ── Per-category split rules ────────────────────────── */
@@ -2283,8 +2381,9 @@ window._submitRequest = async function() {
       'INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
       [id, ME.id, payerId, amountCents, note, 'pending', now, now]
     );
-    // Bootstraps the agreement row (init_from_table) and records my own consent.
-    await agreeOnServer(id, true);
+    // Bootstraps the agreement row (init_from_table) and records my own consent
+    // to exactly what was just written.
+    await agreeOnServer(id, true, { amount_cents: amountCents, note });
     await loadData();
     recompute();
     closeModal();
@@ -2297,14 +2396,38 @@ window._submitRequest = async function() {
   }
 };
 
+const REQUEST_CHANGED = 'This request changed, so nothing was confirmed. Check it again.';
+
 window._agreeRequest = async function(id) {
+  const shown = requests.find(x => x.id === id);
+  if (!shown || shown.status !== 'pending' || shown.terms_changed) return;
+  const terms = termsOf(shown);
   try {
-    await agreeOnServer(id, true);
+    // Read it again first: a confirmation is for the amount and note on the
+    // card that was pressed, so a request that reads differently by now is
+    // shown as it is instead. The hub makes the same comparison (409 below)
+    // for a change that lands after this read.
+    await loadData();
+    recompute();
+    const now = requests.find(x => x.id === id);
+    const same = now && now.status === 'pending' && !now.terms_changed
+      && now.amount_cents === terms.amount_cents && (now.note ?? null) === terms.note;
+    if (!same) {
+      renderAll();
+      toast(REQUEST_CHANGED, 'error');
+      return;
+    }
+    await agreeOnServer(id, true, terms);
     await loadData();
     recompute();
     renderAll();
     toast('Confirmed', 'success');
   } catch (e) {
+    if (e.status === 409) {
+      try { await loadData(); recompute(); renderAll(); } catch { /* keep what is shown */ }
+      toast(REQUEST_CHANGED, 'error');
+      return;
+    }
     toast(e.message, 'error');
   }
 };
@@ -2338,12 +2461,17 @@ window._settleRequest = async function(id) {
   const sid = crypto.randomUUID();
   const now = new Date().toISOString();
   try {
-    // One transaction: the request closes only while it is still 'locked', and
+    // One transaction: the request closes only while it is still open, and
     // the settlement lands only if it did. Both parties pressing the button
     // cannot record the payment twice, and neither half can stand alone.
+    //
+    // 'pending' is the request row's own status for the whole time it is open.
+    // "Confirmed" (`r.status === 'locked'`, checked above) is read from the
+    // agreement row — the hub locks THAT row and never touches this one — so a
+    // guard on 'locked' here matched nothing and no payment was ever recorded.
     await dbBatch([
       { sql: 'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ? AND status = ?',
-        params: ['settled', now, id, 'locked'], requireChanges: true },
+        params: ['settled', now, id, 'pending'], requireChanges: true },
       { sql: 'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
         params: [sid, r.payer_id, r.requester_id, r.amount_cents, r.note ?? '', now, now] },
     ]);

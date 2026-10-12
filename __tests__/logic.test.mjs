@@ -14,6 +14,7 @@ import {
   computeSplitsWithCategory,
   validateCategoryPercents,
   reimbursementStatus,
+  reimbursementTerms,
   validateReimbursement,
   CATEGORIES, searchableFields,
   apportionByWeight, apportionByShares, validateShares, splitTypeLabel, SPLIT_METHODS,
@@ -501,6 +502,35 @@ describe('reimbursementStatus', () => {
   it('lets terminal states on the request win over the lock', () => {
     expect(reimbursementStatus(req('cancelled'), { status: 'locked' })).toBe('cancelled');
     expect(reimbursementStatus(req('settled'), { status: 'locked' })).toBe('settled');
+  });
+});
+
+describe('reimbursementTerms', () => {
+  const row = { id: 'r1', amount_cents: 5000, note: 'Dentist' };
+
+  it('reads the request row until someone confirms', () => {
+    expect(reimbursementTerms(row, undefined)).toEqual({ amount_cents: 5000, note: 'Dentist', recorded: false, changed: false });
+    expect(reimbursementTerms(row, { requester_agreed: 0, payer_agreed: 0, amount_cents: null, note: null }))
+      .toEqual({ amount_cents: 5000, note: 'Dentist', recorded: false, changed: false });
+  });
+
+  it('reads the terms recorded with a confirmation, not the row', () => {
+    const agr = { requester_agreed: 1, payer_agreed: 0, status: 'pending', amount_cents: 5000, note: 'Dentist' };
+    expect(reimbursementTerms(row, agr)).toEqual({ amount_cents: 5000, note: 'Dentist', recorded: true, changed: false });
+    expect(reimbursementTerms({ ...row, amount_cents: 8000 }, agr))
+      .toEqual({ amount_cents: 5000, note: 'Dentist', recorded: true, changed: true });
+    expect(reimbursementTerms({ ...row, note: 'Orthodontist' }, agr).changed).toBe(true);
+  });
+
+  it('keeps the recorded note exactly as the hub holds it, and does not call an empty one changed', () => {
+    const agr = { requester_agreed: 1, payer_agreed: 1, status: 'locked', amount_cents: 5000, note: null };
+    expect(reimbursementTerms({ ...row, note: '' }, agr)).toEqual({ amount_cents: 5000, note: null, recorded: true, changed: false });
+    expect(reimbursementTerms({ ...row, note: '' }, { ...agr, note: '' }).note).toBe('');
+  });
+
+  it('flags a confirmation that carries no recorded terms', () => {
+    const agr = { requester_agreed: 1, payer_agreed: 0, status: 'pending', amount_cents: null, note: null };
+    expect(reimbursementTerms(row, agr)).toEqual({ amount_cents: 5000, note: 'Dentist', recorded: false, changed: true });
   });
 });
 

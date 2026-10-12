@@ -388,6 +388,27 @@ export function reimbursementStatus(request, agreement) {
 }
 
 /**
+ * The terms a request stands for. The hub records them with the first
+ * confirmation (manifest agreements.snapshot_columns) and locks on what it
+ * recorded, whatever the request row says by then — so once either party has
+ * confirmed, the recorded terms are the ones to show and to act on, and the
+ * request row is only where they came from. `changed` says the row no longer
+ * reads the same. Before anyone confirms there is only the row.
+ */
+export function reimbursementTerms(request, agreement) {
+  const live = { amount_cents: request.amount_cents, note: request.note ?? null };
+  const confirmed = !!(agreement?.requester_agreed || agreement?.payer_agreed);
+  if (!confirmed) return { ...live, recorded: false, changed: false };
+  // A confirmation older than recorded terms carries none: the row is all
+  // there is to show, and nothing says it is what was confirmed.
+  if (agreement.amount_cents == null) return { ...live, recorded: false, changed: true };
+  return {
+    amount_cents: agreement.amount_cents, note: agreement.note ?? null, recorded: true,
+    changed: agreement.amount_cents !== request.amount_cents || (agreement.note ?? '') !== (request.note ?? ''),
+  };
+}
+
+/**
  * Validate a reimbursement request before writing it.
  * Amounts arrive as integer cents; anything else is a bug upstream, so reject
  * rather than coerce.
