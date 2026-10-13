@@ -450,9 +450,9 @@
       white-space: nowrap;
     }
     .toast.show { opacity: 1; transform: translateY(0); }
-    .toast.info    { background: var(--text); }
-    .toast.success { background: var(--green); }
-    .toast.error   { background: var(--red); }
+    .toast-info    { background: var(--text); }
+    .toast-success { background: var(--green); }
+    .toast-error   { background: var(--red); }
 
     /* Widget mode */
     #widget-root {
@@ -1986,7 +1986,7 @@ window._deleteExpense = async function(expId) {
   }
 };
 
-async function hubConfirm(msg) {
+async function hubConfirm(msg, okLabel = 'Delete') {
   return new Promise(resolve => {
     const el = document.createElement('div');
     el.className = 'modal-backdrop';
@@ -1996,7 +1996,7 @@ async function hubConfirm(msg) {
           <div style="font-size:1rem;font-weight:600;margin-bottom:20px">${esc(msg)}</div>
           <div style="display:flex;gap:8px;justify-content:center">
             <button class="btn btn-ghost" id="conf-no">Cancel</button>
-            <button class="btn btn-danger" id="conf-yes">Delete</button>
+            <button class="btn btn-danger" id="conf-yes">${esc(okLabel)}</button>
           </div>
         </div>
       </div>`;
@@ -2456,7 +2456,7 @@ window._cancelRequest = async function(id) {
 window._settleRequest = async function(id) {
   const r = requests.find(x => x.id === id);
   if (!r || r.status !== 'locked') return;
-  if (!await hubConfirm(`Record ${fmtMoney(r.amount_cents)} as paid?`)) return;
+  if (!await hubConfirm(`Record ${fmtMoney(r.amount_cents)} as paid?`, 'Record payment')) return;
 
   const sid = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -2489,7 +2489,8 @@ window._settleRequest = async function(id) {
       toast('This request was already settled or cancelled.', 'error');
       return;
     }
-    toast(`Could not record payment: ${e.message}`, 'error');
+    console.error('settleRequest failed', e);
+    toast(e.forUser ? e.message : 'Couldn’t record the payment — try again.', 'error');
   }
 };
 
