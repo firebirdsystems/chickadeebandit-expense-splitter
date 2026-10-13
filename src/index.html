@@ -1551,7 +1551,8 @@ window._onReceiptPicked = async function() {
   } catch (e) {
     if (input) input.value = '';
     if (status) status.textContent = '';
-    toast(`Could not attach receipt: ${e.message}`, 'error');
+    console.error('attachReceipt failed', e);
+    toast('Couldn’t attach the receipt — try again.', 'error');
   }
 };
 
@@ -1982,11 +1983,12 @@ window._deleteExpense = async function(expId) {
     if (removedSplits) splits   = [...splits, ...removedSplits];
     recompute();
     renderAll();
-    toast(`Failed to delete: ${e.message}`, 'error');
+    console.error('deleteExpense failed', e);
+    toast('Couldn’t delete the expense — try again.', 'error');
   }
 };
 
-async function hubConfirm(msg, okLabel = 'Delete') {
+async function hubConfirm(msg, okLabel = 'Delete', { noLabel = 'Cancel', okClass = 'btn-danger' } = {}) {
   return new Promise(resolve => {
     const el = document.createElement('div');
     el.className = 'modal-backdrop';
@@ -1995,8 +1997,8 @@ async function hubConfirm(msg, okLabel = 'Delete') {
         <div class="modal-body" style="text-align:center;padding:24px 20px">
           <div style="font-size:1rem;font-weight:600;margin-bottom:20px">${esc(msg)}</div>
           <div style="display:flex;gap:8px;justify-content:center">
-            <button class="btn btn-ghost" id="conf-no">Cancel</button>
-            <button class="btn btn-danger" id="conf-yes">${esc(okLabel)}</button>
+            <button class="btn btn-ghost" id="conf-no">${esc(noLabel)}</button>
+            <button class="btn ${okClass}" id="conf-yes">${esc(okLabel)}</button>
           </div>
         </div>
       </div>`;
@@ -2200,7 +2202,8 @@ window._saveSplitRule = async function() {
     toast(`Split rule saved for ${categoryFor(cat).label}`, 'success');
   } catch (e) {
     btn.disabled = false; btn.textContent = 'Save rule';
-    toast(`Could not save rule: ${e.message}`, 'error');
+    console.error('saveSplitRule failed', e);
+    toast('Couldn’t save the rule — try again.', 'error');
   }
 };
 
@@ -2284,7 +2287,8 @@ window._savePayHandle = async function() {
     toast('Saved', 'success');
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-    toast(`Could not save: ${e.message}`, 'error');
+    console.error('savePayHandle failed', e);
+    toast('Couldn’t save — try again.', 'error');
   }
 };
 
@@ -2296,7 +2300,8 @@ window._clearPayHandle = async function() {
     renderAll();
     toast('Removed', 'success');
   } catch (e) {
-    toast(`Could not remove: ${e.message}`, 'error');
+    console.error('clearPayHandle failed', e);
+    toast('Couldn’t remove it — try again.', 'error');
   }
 };
 
@@ -2392,7 +2397,8 @@ window._submitRequest = async function() {
     publishEvent('expense.reimbursement_requested', id, { payer_id: payerId, amount_cents: amountCents });
   } catch (e) {
     btn.disabled = false; btn.textContent = 'Send request';
-    toast(`Could not send request: ${e.message}`, 'error');
+    console.error('submitRequest failed', e);
+    toast('Couldn’t send the request — try again.', 'error');
   }
 };
 
@@ -2433,7 +2439,7 @@ window._agreeRequest = async function(id) {
 };
 
 window._cancelRequest = async function(id) {
-  if (!await hubConfirm('Cancel this request?')) return;
+  if (!await hubConfirm('Cancel this request?', 'Cancel request', { noLabel: 'Keep it' })) return;
   try {
     const { changed } = await db(
       'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ?',
@@ -2447,7 +2453,8 @@ window._cancelRequest = async function(id) {
     if (changed === 0) { toast('This request can no longer be cancelled.', 'error'); return; }
     toast('Request cancelled', 'success');
   } catch (e) {
-    toast(`Could not cancel: ${e.message}`, 'error');
+    console.error('cancelRequest failed', e);
+    toast('Couldn’t cancel the request — try again.', 'error');
   }
 };
 
@@ -2456,7 +2463,7 @@ window._cancelRequest = async function(id) {
 window._settleRequest = async function(id) {
   const r = requests.find(x => x.id === id);
   if (!r || r.status !== 'locked') return;
-  if (!await hubConfirm(`Record ${fmtMoney(r.amount_cents)} as paid?`, 'Record payment')) return;
+  if (!await hubConfirm(`Record ${fmtMoney(r.amount_cents)} as paid?`, 'Record payment', { okClass: 'btn-primary' })) return;
 
   const sid = crypto.randomUUID();
   const now = new Date().toISOString();
