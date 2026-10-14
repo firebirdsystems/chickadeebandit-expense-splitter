@@ -96,10 +96,8 @@
       "max_rows": 200
     }
   },
-  "delete_file_columns": {
-    "expenses": [
-      "receipt_file_id"
-    ]
+  "file_columns": {
+    "expenses": { "columns": ["receipt_file_id"] }
   },
   "agreements": {
     "reimbursement_agreements": {
@@ -207,9 +205,6 @@
   },
   "nav": {
     "label": "Expense Splitter"
-  },
-  "resource_limits": {
-    "max_db_bytes": 52428800
   },
   "icon": "💸",
   "ai_access": {
