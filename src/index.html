@@ -776,9 +776,11 @@ async function loadData() {
   // are both governed, so a JOIN across them is rejected — load both and merge
   // by id, the same shape co-parenting uses for swaps. All six reads are
   // independent, so they go out together rather than in two waves.
-  requestsFailed = false;
-  handlesFailed  = false;
-  const noRequests = () => { requestsFailed = true; return { rows: [] }; };
+  // The two "unread" flags are collected here and assigned with the rows, only
+  // when the whole load succeeds: a side read that fails AFTER a required read
+  // has already rejected the load must not flag data that is still on screen.
+  let noReq = false, noHandles = false;
+  const noRequests = () => { noReq = true; return { rows: [] }; };
   const [eRes, sRes, pRes, cRes, rRes, aRes, hRes] = await Promise.all([
     db('SELECT * FROM app_expense_splitter__expenses    ORDER BY date DESC, created_at DESC'),
     db('SELECT * FROM app_expense_splitter__expense_splits'),
@@ -796,8 +798,10 @@ async function loadData() {
     IS_ADULT
       ? db('SELECT * FROM app_expense_splitter__reimbursement_agreements').catch(noRequests)
       : Promise.resolve({ rows: [] }),
-    db('SELECT * FROM app_expense_splitter__payment_handles').catch(() => { handlesFailed = true; return { rows: [] }; }),
+    db('SELECT * FROM app_expense_splitter__payment_handles').catch(() => { noHandles = true; return { rows: [] }; }),
   ]);
+  requestsFailed = noReq;
+  handlesFailed  = noHandles;
   expenses       = eRes.rows;
   splits         = sRes.rows;
   settlements    = pRes.rows;
@@ -837,12 +841,9 @@ function recompute() {
 
 // The re-read that follows a committed write. Its failure is not the write's:
 // the screen keeps what it had and the handler still reports the write as done.
-// loadData resets its two "unread" flags before it reads and assigns nothing
-// when it throws, so they are put back with the rest.
+// loadData assigns nothing when it throws, its two "unread" flags included.
 async function reread() {
-  const kept = [requestsFailed, handlesFailed];
   try { await loadData(); } catch (e) {
-    [requestsFailed, handlesFailed] = kept;
     console.error('re-read after a write failed', e);
   }
 }
