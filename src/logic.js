@@ -730,10 +730,13 @@ export function failureLine(e, { action, thing, found } = {}) {
 /**
  * "Retry after a lost response" (app-template guide): whether a failed write's answer leaves
  * its outcome unknown — no status, a 400, or a 5xx other than 507 — so the page must re-read
- * by its pinned id or stamp before saying anything. A refusal the hub named is known.
+ * by its pinned id or stamp before saying anything. A refusal the hub named is known. A
+ * `UNIQUE_CONSTRAINT` answer is a 400 too: a retry of a create that landed collides on its
+ * own pinned id, so it is read back as well; only finding the pinned id says it landed.
  */
 export function outcomeUnknown(e) {
-  if (e?.forUser || e?.code === "UNIQUE_CONSTRAINT" || /UNIQUE constraint failed/i.test(String(e?.message ?? ""))) return false;
+  if (e?.forUser) return false;
+  if (e?.code === "UNIQUE_CONSTRAINT" || /UNIQUE constraint failed/i.test(String(e?.message ?? ""))) return true;
   const s = e?.status;
   return s == null || s === 400 || (s >= 500 && s !== 507);
 }

@@ -15,9 +15,15 @@ describe("outcomeUnknown", () => {
     expect(outcomeUnknown(err({ status: 404 }))).toBe(false);
     expect(outcomeUnknown(err({ status: 409 }))).toBe(false);
     expect(outcomeUnknown(err({ status: 507 }))).toBe(false);
-    expect(outcomeUnknown(err({ status: 400, code: "UNIQUE_CONSTRAINT" }))).toBe(false);
-    expect(outcomeUnknown(err({ status: 400 }, "UNIQUE constraint failed: x.id"))).toBe(false);
     expect(outcomeUnknown(err({ forUser: true }, "Pick a night"))).toBe(false);
+  });
+  it("reads back on a duplicate: a retry that landed collides on its own pinned id", () => {
+    expect(outcomeUnknown(err({ status: 400, code: "UNIQUE_CONSTRAINT" }))).toBe(true);
+    expect(outcomeUnknown(err({ status: 400 }, "UNIQUE constraint failed: x.id"))).toBe(true);
+  });
+  it("a duplicate whose re-read finds the pinned id landed; not found keeps the duplicate line", () => {
+    expect(pinnedWriteOutcome({ conflict: false, reread: true, landed: true, found: true })).toBe("landed");
+    expect(pinnedWriteOutcome({ conflict: false, reread: true, landed: false, found: true })).toBe("failed");
   });
 });
 
