@@ -835,6 +835,18 @@ function recompute() {
   transactions = simplifyDebts(balances);
 }
 
+// The re-read that follows a committed write. Its failure is not the write's:
+// the screen keeps what it had and the handler still reports the write as done.
+// loadData resets its two "unread" flags before it reads and assigns nothing
+// when it throws, so they are put back with the rest.
+async function reread() {
+  const kept = [requestsFailed, handlesFailed];
+  try { await loadData(); } catch (e) {
+    [requestsFailed, handlesFailed] = kept;
+    console.error('re-read after a write failed', e);
+  }
+}
+
 /* ── UI state helpers ────────────────────────────────── */
 function showMain() {
   document.getElementById('skeleton-state').hidden = true;
@@ -2197,7 +2209,7 @@ window._saveSplitRule = async function() {
       });
     }
     await dbBatch(statements);
-    await loadData();
+    await reread();
     closeModal();
     toast(`Split rule saved for ${categoryFor(cat).label}`, 'success');
   } catch (e) {
@@ -2281,7 +2293,7 @@ window._savePayHandle = async function() {
       { sql: 'INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, visibility, updated_at) VALUES (?,?,?,?,?,?)',
         params: [crypto.randomUUID(), ME.id, service, check.handle, 'everyone', now] },
     ]);
-    await loadData();
+    await reread();
     closeModal();
     renderAll();
     toast('Saved', 'success');
@@ -2295,7 +2307,7 @@ window._savePayHandle = async function() {
 window._clearPayHandle = async function() {
   try {
     await db('DELETE FROM app_expense_splitter__payment_handles WHERE member_id = ?', [ME.id]);
-    await loadData();
+    await reread();
     closeModal();
     renderAll();
     toast('Removed', 'success');
@@ -2387,13 +2399,22 @@ window._submitRequest = async function() {
       [id, ME.id, payerId, amountCents, note, 'pending', now, now]
     );
     // Bootstraps the agreement row (init_from_table) and records my own consent
-    // to exactly what was just written.
-    await agreeOnServer(id, true, { amount_cents: amountCents, note });
-    await loadData();
+    // to exactly what was just written. The request row is stored by now, so a
+    // failure here is not a failed send: saying so left the form open, and a
+    // second press inserted a second request. The card offers Confirm instead.
+    let confirmed = true;
+    try {
+      await agreeOnServer(id, true, { amount_cents: amountCents, note });
+    } catch (e) {
+      confirmed = false;
+      console.error('submitRequest: confirmation failed', e);
+    }
+    await reread();
     recompute();
     closeModal();
     renderAll();
-    toast('Request sent', 'success');
+    if (confirmed) toast('Request sent', 'success');
+    else toast('Request sent, but your confirmation wasn’t recorded — press Confirm on it.', 'error');
     publishEvent('expense.reimbursement_requested', id, { payer_id: payerId, amount_cents: amountCents });
   } catch (e) {
     btn.disabled = false; btn.textContent = 'Send request';
@@ -2424,7 +2445,7 @@ window._agreeRequest = async function(id) {
       return;
     }
     await agreeOnServer(id, true, terms);
-    await loadData();
+    await reread();
     recompute();
     renderAll();
     toast('Confirmed', 'success');
@@ -2434,7 +2455,8 @@ window._agreeRequest = async function(id) {
       toast(REQUEST_CHANGED, 'error');
       return;
     }
-    toast(e.message, 'error');
+    console.error('agreeRequest failed', e);
+    toast('Couldn’t confirm the request — try again.', 'error');
   }
 };
 
@@ -2445,7 +2467,7 @@ window._cancelRequest = async function(id) {
       'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ?',
       ['cancelled', new Date().toISOString(), id]
     );
-    await loadData();
+    await reread();
     recompute();
     renderAll();
     // A request already settled or cancelled is frozen: the hub answers 200
@@ -2482,7 +2504,7 @@ window._settleRequest = async function(id) {
       { sql: 'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
         params: [sid, r.payer_id, r.requester_id, r.amount_cents, r.note ?? '', now, now] },
     ]);
-    await loadData();
+    await reread();
     recompute();
     renderAll();
     toast('Payment recorded', 'success');
