@@ -567,6 +567,7 @@ import {
   CATEGORY_RULE_SPLIT, apportionByShares, apportionByPercent,
   summarize, expenseMonths, monthLabel, rangeForPeriod, monthKey,
   PAYMENT_SERVICES, paymentServiceFor, validateHandle, displayHandle, payLink, handleMap,
+  failureLine, outcomeUnknown, pinnedWriteOutcome,
 } from './logic.js';
 
 document.getElementById('header-glyph').innerHTML = glyph('split');
@@ -688,7 +689,7 @@ async function db(sql, params = []) {
     body: JSON.stringify({ sql, params }),
   });
   const json = await res.json().catch(() => null);
-  if (!res.ok || !json || typeof json !== "object" || json.error) throw new Error(json?.error || 'Couldn’t reach the hub. Try again.');
+  if (!res.ok || !json || typeof json !== "object" || json.error) throw Object.assign(new Error(json?.error || 'Couldn’t reach the hub. Try again.'), { status: res.ok ? undefined : res.status, code: json?.code });
   return json;
 }
 
@@ -704,7 +705,7 @@ async function dbBatch(statements) {
     body: JSON.stringify({ statements }),
   });
   const json = await res.json().catch(() => null);
-  if (!res.ok || !json || typeof json !== "object" || json.error) throw new Error(json?.error || 'Couldn’t reach the hub. Try again.');
+  if (!res.ok || !json || typeof json !== "object" || json.error) throw Object.assign(new Error(json?.error || 'Couldn’t reach the hub. Try again.'), { status: res.ok ? undefined : res.status, code: json?.code });
   return json;
 }
 
@@ -1379,12 +1380,12 @@ function closeModalIfCurrent(origin) {
 
 // A save the hub refused: the form stays open as typed, says so in its own
 // error line, and its button works again. A form that was dismissed meanwhile
-// has no line left to read, so that one is a toast.
-function saveFailed(origin, btn, label) {
+// has no line left to read, so that one is a toast. `text` is failureLine's.
+function saveFailed(origin, btn, label, text) {
   if (origin) delete origin.dataset.saving;
   const line = modalEl === origin ? origin?.querySelector('[data-form-error]') : null;
-  if (line) { line.textContent = 'Couldn’t save — try again.'; line.hidden = false; }
-  else toast('Couldn’t save — try again.', 'error');
+  if (line) { line.textContent = text; line.hidden = false; }
+  else toast(text, 'error');
   if (btn) { btn.disabled = false; btn.textContent = label; }
 }
 
@@ -1565,7 +1566,10 @@ window._onReceiptPicked = async function() {
     if (input) input.value = '';
     if (status) status.textContent = '';
     console.error('attachReceipt failed', e);
-    toast('Couldn’t attach the receipt — try again.', 'error');
+    // A file the hub turned away says why; only a failure asks for a retry.
+    toast(e?.status === 413 ? 'That receipt is too large to attach.'
+      : e?.status === 415 ? 'That kind of file can’t be attached.'
+      : failureLine(e, { action: 'attach the receipt', thing: 'receipt' }), 'error');
   }
 };
 
@@ -1878,8 +1882,9 @@ window._submitExpense = async function() {
       });
     }
     await dbBatch(statements);
-  } catch {
-    saveFailed(origin, btn, 'Save Expense');
+  } catch (e) {
+    console.error('submitExpense failed', e);
+    saveFailed(origin, btn, 'Save Expense', failureLine(e, { action: 'save the expense', thing: 'expense' }));
     if (origin) delete origin.savedReceipt;
     // The receipt is kept only for a form that can still send it again. One
     // dismissed, or re-pointed at another file, while the save ran cannot.
@@ -1997,7 +2002,7 @@ window._deleteExpense = async function(expId) {
     recompute();
     renderAll();
     console.error('deleteExpense failed', e);
-    toast('Couldn’t delete the expense — try again.', 'error');
+    toast(failureLine(e, { action: 'delete the expense', thing: 'expense' }), 'error');
   }
 };
 
@@ -2091,8 +2096,9 @@ window._submitSettlement = async function(fromId, toId) {
       'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
       [id, fromId, toId, amountCents, '', now, now]
     );
-  } catch {
-    saveFailed(origin, btn, 'Record Payment');
+  } catch (e) {
+    console.error('submitSettlement failed', e);
+    saveFailed(origin, btn, 'Record Payment', failureLine(e, { action: 'record the payment', thing: 'payment' }));
     return;
   }
 
@@ -2216,7 +2222,7 @@ window._saveSplitRule = async function() {
   } catch (e) {
     btn.disabled = false; btn.textContent = 'Save rule';
     console.error('saveSplitRule failed', e);
-    toast('Couldn’t save the rule — try again.', 'error');
+    toast(failureLine(e, { action: 'save the rule', thing: 'split rule' }), 'error');
   }
 };
 
@@ -2301,7 +2307,7 @@ window._savePayHandle = async function() {
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
     console.error('savePayHandle failed', e);
-    toast('Couldn’t save — try again.', 'error');
+    toast(failureLine(e, { action: 'save how to pay you', thing: 'payment username' }), 'error');
   }
 };
 
@@ -2314,7 +2320,7 @@ window._clearPayHandle = async function() {
     toast('Removed', 'success');
   } catch (e) {
     console.error('clearPayHandle failed', e);
-    toast('Couldn’t remove it — try again.', 'error');
+    toast(failureLine(e, { action: 'remove how to pay you', thing: 'payment username' }), 'error');
   }
 };
 
@@ -2420,7 +2426,7 @@ window._submitRequest = async function() {
   } catch (e) {
     btn.disabled = false; btn.textContent = 'Send request';
     console.error('submitRequest failed', e);
-    toast('Couldn’t send the request — try again.', 'error');
+    toast(failureLine(e, { action: 'send the request', thing: 'request' }), 'error');
   }
 };
 
@@ -2457,7 +2463,7 @@ window._agreeRequest = async function(id) {
       return;
     }
     console.error('agreeRequest failed', e);
-    toast('Couldn’t confirm the request — try again.', 'error');
+    toast(failureLine(e, { action: 'confirm the request', thing: 'request' }), 'error');
   }
 };
 
@@ -2468,28 +2474,48 @@ window._cancelRequest = async function(id) {
       'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ?',
       ['cancelled', new Date().toISOString(), id]
     );
-    await reread();
+    // The re-read follows a committed write; its failure is not the write's.
+    let reread = false;
+    try { await loadData(); reread = !requestsFailed; } catch (e2) { console.error('re-read after a write failed', e2); }
     recompute();
     renderAll();
     // A request already settled or cancelled is frozen: the hub answers 200
-    // and changes nothing.
-    if (changed === 0) { toast('This request can no longer be cancelled.', 'error'); return; }
+    // and changes nothing. The re-read says whether it is gone or was closed.
+    if (changed === 0) {
+      const found = reread ? requests.some(x => x.id === id) : undefined;
+      // Without a re-read nothing is known: the plain line, not a claim.
+      toast(found === undefined ? failureLine(null, { action: 'cancel the request', thing: 'request' })
+        : found === false ? 'This request has been removed.' : 'This request was already settled or cancelled.', 'error');
+      return;
+    }
     toast('Request cancelled', 'success');
   } catch (e) {
     console.error('cancelRequest failed', e);
-    toast('Couldn’t cancel the request — try again.', 'error');
+    toast(failureLine(e, { action: 'cancel the request', thing: 'request' }), 'error');
   }
 };
 
 // A confirmed request becomes a real settlement — the same row the balance math
 // already understands — and the request is closed so it can't be settled twice.
+// The settlement id and time are pinned per request until the outcome is
+// known: a retry after a lost answer sends the same ones, so a re-read that
+// finds this id knows the earlier attempt landed. One attempt per request at a
+// time, so two in flight cannot both find the pin and both report success.
+const settlePins = new Map();
+const settling = new Set();
 window._settleRequest = async function(id) {
   const r = requests.find(x => x.id === id);
   if (!r || r.status !== 'locked') return;
   if (!await hubConfirm(`Record ${fmtMoney(r.amount_cents)} as paid?`, 'Record payment', { okClass: 'btn-primary' })) return;
+  if (settling.has(id)) return;
+  settling.add(id);
+  try { await settleRequest(id, r); } finally { settling.delete(id); }
+};
 
-  const sid = crypto.randomUUID();
-  const now = new Date().toISOString();
+async function settleRequest(id, r) {
+  if (!settlePins.has(id)) settlePins.set(id, { sid: crypto.randomUUID(), now: new Date().toISOString() });
+  const { sid, now } = settlePins.get(id);
+  let rereadDone = false;
   try {
     // One transaction: the request closes only while it is still open, and
     // the settlement lands only if it did. Both parties pressing the button
@@ -2505,24 +2531,46 @@ window._settleRequest = async function(id) {
       { sql: 'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
         params: [sid, r.payer_id, r.requester_id, r.amount_cents, r.note ?? '', now, now] },
     ]);
-    await reread();
-    recompute();
-    renderAll();
-    toast('Payment recorded', 'success');
-    publishEvent('expense.settled', sid, {
-      from_id: r.payer_id, to_id: r.requester_id, amount_cents: r.amount_cents,
-    });
   } catch (e) {
-    // An unmet requireChanges rolls the batch back: someone closed the request first.
-    if (/stale state/i.test(String(e.message))) {
-      try { await loadData(); recompute(); renderAll(); } catch { /* keep what is shown */ }
-      toast('This request was already settled or cancelled.', 'error');
+    // An unmet requireChanges rolls the batch back: someone closed the request
+    // first — or an earlier attempt of this one did, its answer lost.
+    const conflict = e?.status === 409 || /stale state/i.test(String(e?.message));
+    if (!conflict && !outcomeUnknown(e)) {
+      settlePins.delete(id);
+      console.error('settleRequest failed', e);
+      toast(failureLine(e, { action: 'record the payment', thing: 'request' }), 'error');
       return;
     }
-    console.error('settleRequest failed', e);
-    toast(e.forUser ? e.message : 'Couldn’t record the payment — try again.', 'error');
+    let reread = false;
+    try { await loadData(); reread = true; recompute(); renderAll(); } catch (e2) { console.error('re-read after a write failed', e2); }
+    const outcome = pinnedWriteOutcome({
+      conflict, reread,
+      landed: settlements.some(s => s.id === sid),
+      found: requestsFailed ? undefined : requests.some(x => x.id === id),
+    });
+    if (outcome !== 'landed') {
+      if (outcome === 'removed' || outcome === 'changed') settlePins.delete(id);
+      if (!conflict) console.error('settleRequest failed', e);
+      toast(outcome === 'failed' ? failureLine(e, { action: 'record the payment', thing: 'request' })
+        : outcome === 'removed' ? 'This request has been removed.'
+        : outcome === 'changed' ? 'This request was already settled or cancelled.'
+        : failureLine(null, { action: 'record the payment', thing: 'request' }), 'error');
+      return;
+    }
+    rereadDone = true;
   }
-};
+  // Recorded — by this attempt, or by an earlier one whose answer was lost.
+  settlePins.delete(id);
+  try {
+    if (!rereadDone) await reread();
+    recompute();
+    renderAll();
+  } catch (e) { console.error('render after a write failed', e); }
+  toast('Payment recorded', 'success');
+  publishEvent('expense.settled', sid, {
+    from_id: r.payer_id, to_id: r.requester_id, amount_cents: r.amount_cents,
+  });
+}
 
 /* ── Toast ───────────────────────────────────────────── */
 function toast(msg, type = 'info') {
