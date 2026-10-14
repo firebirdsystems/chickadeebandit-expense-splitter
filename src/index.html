@@ -2551,7 +2551,9 @@ async function settleRequest(id, r) {
     if (outcome !== 'landed') {
       if (outcome === 'removed' || outcome === 'changed') settlePins.delete(id);
       if (!conflict) console.error('settleRequest failed', e);
-      toast(outcome === 'failed' ? failureLine(e, { action: 'record the payment', thing: 'request' })
+      // The settlement id is ours: with the re-read failed, a UNIQUE answer may be
+      // this request's own first try, so nothing is known — "try again".
+      toast(outcome === 'failed' ? failureLine(reread ? e : null, { action: 'record the payment', thing: 'request' })
         : outcome === 'removed' ? 'This request has been removed.'
         : outcome === 'changed' ? 'This request was already settled or cancelled.'
         : failureLine(null, { action: 'record the payment', thing: 'request' }), 'error');
