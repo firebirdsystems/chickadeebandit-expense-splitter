@@ -147,3 +147,11 @@ if (manifest.ai_access) {
     });
   }
 }
+
+describe("migration 005", () => {
+  it("adds no index nothing seeks by: the page and the hub read every template", () => {
+    const sql = readFileSync(join(__dirname, "../migrations/005_recurring_expenses.sql"), "utf-8");
+    const indexes = [...sql.matchAll(/CREATE (UNIQUE )?INDEX[^\n]*\n\s*ON (\w+)/g)].map(x => x[2]);
+    expect(indexes).toEqual(["app_expense_splitter__expenses"]);
+  });
+});

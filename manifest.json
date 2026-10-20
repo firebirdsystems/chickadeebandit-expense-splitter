@@ -2,7 +2,7 @@
   "id": "expense-splitter",
   "name": "Expense Splitter",
   "version": "1.3.1",
-  "description": "Track shared expenses among household members — who paid, how to split the cost, and who owes whom. Log expenses by category with a receipt, settle up with one tap, and see a running balance per person. In a shared space, either party can request a reimbursement that both sides countersign.",
+  "description": "Track shared expenses among household members — who paid, how to split the cost, and who owes whom. Log expenses by category with a receipt, set up rent and other regular bills once instead of retyping them, settle up with one tap, and see a running balance per person. In a shared space, either party can request a reimbursement that both sides countersign.",
   "entrypoint": "index.html",
   "runtime": "static",
   "category": "family",
@@ -63,6 +63,10 @@
     },
     "category_splits": {
       "kind": "adult_writable"
+    },
+    "recurring_expenses": {
+      "kind": "adult_writable",
+      "audit_writes": true
     },
     "reimbursements": {
       "kind": "party_scoped",
@@ -146,6 +150,16 @@
       "column": "member_id",
       "on_removed": "keep"
     },
+    "recurring_expenses": [
+      {
+        "column": "paid_by",
+        "on_removed": "keep"
+      },
+      {
+        "column": "created_by",
+        "on_removed": "keep"
+      }
+    ],
     "reimbursements": [
       {
         "column": "requester_id",
@@ -173,8 +187,25 @@
   },
   "db_plaintext_columns": [
     "date",
-    "split_type"
+    "split_type",
+    "remind",
+    "remind_scope",
+    "remind_to"
   ],
+  "required_capabilities": ["cron", "email"],
+  "date_reminders": {
+    "table": "recurring_expenses",
+    "date_column": "next_due_date",
+    "default_lead_days": 3,
+    "enabled_column": "remind",
+    "title_column": "description",
+    "owner_column": "paid_by",
+    "visibility_column": "remind_to",
+    "everyone_values": ["household"],
+    "last_reminded_column": "last_reminded_at",
+    "on_no_recipients": "skip",
+    "calendar": true
+  },
   "glance": {
     "source": {
       "kind": "sql",

@@ -520,6 +520,7 @@
 
       <!-- Expenses view -->
       <div id="view-expenses" hidden role="tabpanel">
+        <div id="recurring-list"></div>
         <div class="search-row">
           <input type="search" id="search-input" class="search-input"
                  placeholder="Search expenses…" autocomplete="off"
@@ -568,6 +569,11 @@ import {
   summarize, expenseMonths, monthLabel, rangeForPeriod, monthKey,
   PAYMENT_SERVICES, paymentServiceFor, validateHandle, displayHandle, payLink, handleMap,
   failureLine, outcomeUnknown, pinnedWriteOutcome,
+  CADENCES, cadenceFor, REMIND_SCOPES, MAX_POSTS_PER_RUN, dueOccurrences, resumeDate,
+  reminderColumns, parseJsonField, templateMembers, occurrenceSplits, templateProblem,
+  scheduleLabel, templateEnded, parseIsoDate, editableCadence, anchorForSave,
+  scheduleFormError, isStaleConflict, isDuplicate, postingBatches, MAX_BATCH_STATEMENTS,
+  reminderSyncStatement, postedOccurrenceKeys, earliestDueDate, sameTemplateTerms,
 } from './logic.js';
 
 document.getElementById('header-glyph').innerHTML = glyph('split');
@@ -600,6 +606,10 @@ const CAN_UPLOAD = !!window.__FILES_URL;
 // Delegation also means markup re-rendered via innerHTML needs no re-wiring.
 const CLICK_ACTIONS = {
   openAdd:          () => window._openAdd(),
+  editRecurring:    el => window._editRecurring(el.dataset.recurring),
+  pauseRecurring:   el => window._setRecurringActive(el.dataset.recurring, false),
+  resumeRecurring:  el => window._setRecurringActive(el.dataset.recurring, true),
+  deleteRecurring:  el => window._deleteRecurring(el.dataset.recurring),
   openRequest:      () => window._openRequest(),
   openSplitRules:   () => window._openSplitRules(),
   openPayHandle:    () => window._openPayHandle(),
@@ -635,6 +645,7 @@ const INPUT_ACTIONS = {
 };
 const CHANGE_ACTIONS = {
   summaryPeriod:   el => window._setSummaryPeriod(el.value),
+  setRepeat:       el => window._setRepeat(el.value),
   handleService:   () => window._onHandleService(),
   receiptPicked:   () => window._onReceiptPicked(),
   renderSplitRule: () => window._renderSplitRule(),
@@ -664,10 +675,15 @@ let categorySplits = [];   // saved per-category default percentages
 let requests       = [];   // reimbursement requests, merged with their agreements
 let paymentHandles = [];   // one row per member: where to send them money
 let handles        = new Map();
+let recurring      = [];   // repeating-expense templates (recurring_expenses)
 // A side read that failed: the page says so (or hides the control) rather
 // than calling it none.
 let requestsFailed = false;
 let handlesFailed  = false;
+let recurringFailed = false;
+// True until the template list has been read once. A missing template means
+// "stopped" only after that.
+let recurringPending = true;
 
 let activeTab      = 'balances';
 let activeCategory = 'all';
@@ -709,13 +725,28 @@ async function dbBatch(statements) {
   return json;
 }
 
+const RECURRING_SQL = 'SELECT * FROM app_expense_splitter__recurring_expenses ORDER BY created_at';
+
+/** The template list on its own, after the first paint. A failure is said on
+ *  the Expenses tab, never read as "none set up". */
+async function loadRecurring() {
+  try {
+    recurring = DB ? (await db(RECURRING_SQL)).rows : [];
+    recurringFailed = false;
+  } catch {
+    recurring = [];
+    recurringFailed = true;
+  }
+  recurringPending = false;
+}
+
 /* ── Init ────────────────────────────────────────────── */
 async function init() {
   const params = new URLSearchParams(window.location.search);
 
   if (params.get('view') === 'widget') {
     try {
-      await Promise.all([loadMembers(), loadData()]);
+      await Promise.all([loadMembers(), loadData({ withRecurring: false })]);
       recompute();
       renderWidget();
     } catch { renderWidget(); }
@@ -729,7 +760,7 @@ async function init() {
     // than fails never rejects, and Promise.all waits for it either way. The
     // whole app sat on its skeleton behind an optional list nothing above the
     // fold needs.
-    await Promise.all([loadMembers(), loadData()]);
+    await Promise.all([loadMembers(), loadData({ withRecurring: false })]);
     recompute();
     showMain();
     renderAll();
@@ -740,6 +771,16 @@ async function init() {
     // this rejects is renderExportBlock itself — caught, because an unhandled
     // rejection here is a console error on a screen that is already correct.
     loadReportViews().then(renderExportBlock).catch(() => {});
+
+    // Repeating expenses, after the first paint and never awaited: the ledger
+    // on screen is already right for what is stored. Once the templates are
+    // read, whatever came due since anyone last opened the app is posted, and
+    // the run repaints when it adds anything.
+    loadRecurring().then(() => {
+      renderAll();
+      postDueRecurring().catch(e => console.error('posting repeating expenses failed', e));
+      watchForDueDates();
+    }).catch(e => console.error('loading repeating expenses failed', e));
 
     const expenseId = params.get('expenseId');
     if (expenseId) {
@@ -766,11 +807,16 @@ async function loadMembers() {
   memberMap = new Map(members.map(m => [m.id, m]));
 }
 
-async function loadData() {
+// The template list is read only when asked for (`withRecurring`): the first
+// paint does not wait on it (the preload cap is full, and nothing above the
+// fold needs it; loadRecurring fetches it right after), and only the
+// repeating-expense paths re-read it.
+async function loadData({ withRecurring = false } = {}) {
   if (!DB) {
     expenses    = DEMO_EXPENSES;
     splits      = DEMO_SPLITS;
     settlements = DEMO_SETTLEMENTS;
+    recurring   = [];
     return;
   }
   // reimbursements (party_scoped) and reimbursement_agreements (endpoint_only)
@@ -780,9 +826,9 @@ async function loadData() {
   // The two "unread" flags are collected here and assigned with the rows, only
   // when the whole load succeeds: a side read that fails AFTER a required read
   // has already rejected the load must not flag data that is still on screen.
-  let noReq = false, noHandles = false;
+  let noReq = false, noHandles = false, noRecurring = false;
   const noRequests = () => { noReq = true; return { rows: [] }; };
-  const [eRes, sRes, pRes, cRes, rRes, aRes, hRes] = await Promise.all([
+  const [eRes, sRes, pRes, cRes, rRes, aRes, hRes, tRes] = await Promise.all([
     db('SELECT * FROM app_expense_splitter__expenses    ORDER BY date DESC, created_at DESC'),
     db('SELECT * FROM app_expense_splitter__expense_splits'),
     db('SELECT * FROM app_expense_splitter__settlements ORDER BY settled_at DESC'),
@@ -800,9 +846,21 @@ async function loadData() {
       ? db('SELECT * FROM app_expense_splitter__reimbursement_agreements').catch(noRequests)
       : Promise.resolve({ rows: [] }),
     db('SELECT * FROM app_expense_splitter__payment_handles').catch(() => { noHandles = true; return { rows: [] }; }),
+    // A side read like the handles: a failure says so on the Expenses tab and
+    // stops this page posting anything, rather than reading as "none set up".
+    withRecurring
+      ? db(RECURRING_SQL).catch(() => { noRecurring = true; return { rows: [] }; })
+      : Promise.resolve(null),
   ]);
   requestsFailed = noReq;
   handlesFailed  = noHandles;
+  if (tRes) {
+    recurringFailed  = noRecurring;
+    // A failed read keeps the rows the page last had: it says nothing about
+    // them, and dropping them would make every template read as deleted.
+    if (!noRecurring) recurring = tRes.rows;
+    recurringPending = false;
+  }
   expenses       = eRes.rows;
   splits         = sRes.rows;
   settlements    = pRes.rows;
@@ -843,10 +901,22 @@ function recompute() {
 // The re-read that follows a committed write. Its failure is not the write's:
 // the screen keeps what it had and the handler still reports the write as done.
 // loadData assigns nothing when it throws, its two "unread" flags included.
-async function reread() {
-  try { await loadData(); } catch (e) {
+// `withRecurring` adds the template list: only the repeating-expense paths
+// need it, so every other write's re-read costs no extra query.
+async function reread({ withRecurring = false } = {}) {
+  try { await loadData({ withRecurring }); ledgerStale = false; return true; } catch (e) {
     console.error('re-read after a write failed', e);
+    return false;
   }
+}
+
+// The re-read that decides what a write whose answer was lost actually did,
+// then repaints. True when the re-read succeeded, so its rows can be trusted.
+async function rereadAndRender(opts) {
+  const ok = await reread(opts);
+  recompute();
+  renderAll();
+  return ok;
 }
 
 /* ── UI state helpers ────────────────────────────────── */
@@ -918,6 +988,7 @@ function renderAll() {
   renderBalanceBanner();
   renderBalancesView();
   renderExpensesView();
+  renderRecurring();
   renderCatFilter();
   renderSummary();
   renderRequests();
@@ -1328,6 +1399,7 @@ function expenseCard(exp, i) {
           <span>${esc(paidBy.name)}</span>
           <span>·</span>
           <span>${fmtDate(exp.date)}</span>
+          ${exp.recurring_id ? `<span>·</span><span data-testid="repeat-marker" title="Added by a repeating expense">${glyph('repeat')}</span>` : ''}
         </div>
       </div>
       <div class="expense-right">
@@ -1404,6 +1476,20 @@ const f = {
   // matching the numbers the member was looking at.
   weights: {},
   receiptFileId: null,
+  // 'none' for a one-off expense, else a cadence id: the form then saves a
+  // repeating-expense template instead of an expense.
+  repeat: 'none',
+  // Set while the form edits an existing template.
+  editId: null,
+  editStamp: null,
+  // The next due date an edit form opened with. A posting run that moves the
+  // template while the form is open uses it to tell an untouched date field
+  // from one the member changed.
+  formNext: null,
+  // The modal this state belongs to.
+  formEl: null,
+  // Set while an edit form shows a template's stored weights (seedWeights).
+  keepWeights: false,
 };
 
 // An uploaded receipt that no expense row points to is deleted, not left in
@@ -1416,34 +1502,51 @@ function reclaimReceipt(id) {
 // lost and removes itself.
 let receiptPick = 0;
 
-window._openAdd = function() {
+// `template` is a repeating-expense row to edit, or nothing for a new expense.
+window._openAdd = function(template = null) {
   // Before the reset below: closing the form that is open now is what reclaims
   // ITS receipt, and it reads f to find it.
   closeModal();
-  f.category   = 'other';
-  f.paidBy     = ME.id;
-  f.splitAmong = new Set(members.map(m => m.id));
-  f.splitType  = 'equal';
-  f.custom     = {};
-  f.weights    = {};
+  const editing = template && typeof template === 'object' ? template : null;
+  const saved   = editing ? parseJsonField(editing.split_weights, {}) : {};
+  f.editId     = editing?.id ?? null;
+  f.editStamp  = editing?.updated_at ?? null;
+  f.repeat     = editing ? editableCadence(editing.cadence) : 'none';
+  f.formNext   = editing?.next_due_date ?? null;
+  f.category   = editing?.category ?? 'other';
+  f.paidBy     = editing?.paid_by ?? ME.id;
+  // A member who has left is dropped from the split rather than carried into
+  // a save that would put a share on them.
+  f.splitAmong = new Set(editing ? templateMembers(editing).filter(id => memberMap.has(id)) : members.map(m => m.id));
+  f.splitType  = editing?.split_type ?? 'equal';
+  f.custom     = editing && f.splitType === 'custom'
+    ? Object.fromEntries(Object.entries(saved).map(([id, cents]) => [id, (Number(cents) / 100).toFixed(2)]))
+    : {};
+  f.weights    = editing && (f.splitType === 'shares' || f.splitType === 'percent') ? { ...saved } : {};
+  // An edited template shows the split it has, even when a member who left
+  // means its percentages no longer total 100%: the form then says so, rather
+  // than silently re-evening an agreed 60/30 to 50/50.
+  f.keepWeights = !!editing;
   f.receiptFileId = null;
+  const repeating = f.repeat !== 'none';
 
   openModal(`
     <div class="modal-header">
-      <span class="modal-title">Add Expense</span>
+      <span class="modal-title">${editing ? 'Edit Repeating Expense' : 'Add Expense'}</span>
       <button class="modal-close" data-action="closeModal">×</button>
     </div>
     <div class="modal-body">
       <div class="amount-wrap">
         <span class="amount-symbol">$</span>
         <input type="number" id="f-amount" class="amount-input" placeholder="0.00"
-               min="0.01" step="0.01" data-input="formChange">
+               min="0.01" step="0.01" data-input="formChange"
+               value="${editing ? esc((Number(editing.amount_cents) / 100).toFixed(2)) : ''}">
       </div>
 
       <div class="form-group">
         <label class="form-label">Description</label>
         <input type="text" id="f-desc" class="text-input" placeholder="What was this for?"
-               maxlength="100" data-input="formChange">
+               maxlength="100" data-input="formChange" value="${esc(editing?.description ?? '')}">
       </div>
 
       <div class="form-group">
@@ -1452,8 +1555,29 @@ window._openAdd = function() {
       </div>
 
       <div class="form-group">
-        <label class="form-label">Date</label>
-        <input type="date" id="f-date" class="text-input" value="${hubToday()}">
+        <label class="form-label" id="f-date-label" for="f-date">${dateLabel()}</label>
+        <input type="date" id="f-date" class="text-input" data-input="formChange"
+               value="${esc(editing?.next_due_date ?? hubToday())}"${repeating && !editing ? ` min="${esc(earliestDueDate(hubToday()) ?? '')}"` : ''}>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="f-repeat">Repeats</label>
+        <select id="f-repeat" class="text-input" data-change="setRepeat" data-testid="repeat-select">
+          ${editing ? '' : `<option value="none">Doesn’t repeat</option>`}
+          ${CADENCES.map(c => `<option value="${esc(c.id)}"${f.repeat === c.id ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}
+        </select>
+        <div id="f-repeat-extra" ${repeating ? '' : 'hidden'}>
+          <p class="hint" style="margin-top:6px">Added to the ledger for you on each due date. A first date in the past fills in every occurrence up to today.</p>
+          <p class="hint" id="f-sync-note" data-testid="sync-note" style="margin-top:6px" hidden></p>
+          <label class="form-label" for="f-end" style="margin-top:10px">Ends <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+          <input type="date" id="f-end" class="text-input" data-input="formChange" value="${esc(editing?.end_date ?? '')}">
+          <p class="hint" id="f-schedule-error" data-testid="schedule-error" role="alert" style="margin-top:6px;color:var(--red)" hidden></p>
+          <p class="hint" id="f-backfill-note" data-testid="backfill-note" style="margin-top:6px" hidden></p>
+          <label class="form-label" for="f-remind" style="margin-top:10px">Reminder three days before</label>
+          <select id="f-remind" class="text-input">
+            ${REMIND_SCOPES.map(r => `<option value="${esc(r.id)}"${(editing?.remind_scope ?? 'payer') === r.id ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}
+          </select>
+        </div>
       </div>
 
       <div class="form-group">
@@ -1470,15 +1594,15 @@ window._openAdd = function() {
         <label class="form-label">Split method</label>
         <div class="split-toggle">
           ${SPLIT_METHODS.map(m => `
-            <button class="split-toggle-btn${m.id === 'equal' ? ' active' : ''}"
+            <button class="split-toggle-btn${m.id === f.splitType ? ' active' : ''}"
                     id="f-method-${esc(m.id)}" data-action="setSplitMethod"
                     data-method="${esc(m.id)}">${esc(m.symbol)} ${esc(m.label)}</button>`).join('')}
         </div>
         <div id="f-split-preview"></div>
       </div>
 
-      ${CAN_UPLOAD ? `
-      <div class="form-group">
+      ${CAN_UPLOAD && !editing ? `
+      <div class="form-group" id="f-receipt-group" ${repeating ? 'hidden' : ''}>
         <label class="form-label">Receipt <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
         <div class="receipt-row">
           <input type="file" id="f-receipt"
@@ -1491,7 +1615,7 @@ window._openAdd = function() {
     <div class="split-remaining bad" data-form-error data-testid="modal-error" role="alert" style="text-align:left;padding:0 20px 10px" hidden></div>
     <div class="modal-footer">
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
-      <button class="btn btn-primary" id="f-save-btn" data-action="submitExpense" disabled>Save Expense</button>
+      <button class="btn btn-primary" id="f-save-btn" data-action="submitExpense" disabled>${saveLabel()}</button>
     </div>
   `);
 
@@ -1503,10 +1627,44 @@ window._openAdd = function() {
   form.onClose = () => {
     if (f.receiptFileId !== form.savedReceipt) reclaimReceipt(f.receiptFileId);
     f.receiptFileId = null;
+    // The edit state belongs to this form. Left set, a posting run could take
+    // a later, unrelated modal for it (syncOpenEditForm).
+    if (f.formEl === form) { f.editId = null; f.editStamp = null; f.formNext = null; f.formEl = null; }
   };
+  f.formEl = form;
 
   renderFormPills();
   updateFormPreview();
+};
+
+function dateLabel() {
+  if (f.repeat === 'none') return 'Date';
+  return f.editId ? 'Next due' : 'First due';
+}
+
+function saveLabel() {
+  if (f.editId) return 'Save Changes';
+  return f.repeat === 'none' ? 'Save Expense' : 'Save Repeating Expense';
+}
+
+// A receipt belongs to one expense, so the picker is hidden while the form
+// saves a repeating one. A receipt already attached is not saved with it, and
+// closing the form reclaims it like any other unsaved pick.
+window._setRepeat = function(value) {
+  f.repeat = value === 'none' || cadenceFor(value) ? value : 'none';
+  const repeating = f.repeat !== 'none';
+  const extra = document.getElementById('f-repeat-extra');
+  if (extra) extra.hidden = !repeating;
+  const receipt = document.getElementById('f-receipt-group');
+  if (receipt) receipt.hidden = repeating;
+  const label = document.getElementById('f-date-label');
+  if (label) label.textContent = dateLabel();
+  // A one-off expense may be backdated freely; a repeating one backfills.
+  const dateEl = document.getElementById('f-date');
+  if (dateEl) dateEl.min = repeating && !f.editId ? (earliestDueDate(hubToday()) ?? '') : '';
+  const btn = modalEl?.querySelector('#f-save-btn');
+  if (btn && modalEl?.dataset.saving !== '1') btn.textContent = saveLabel();
+  validateForm();
 };
 
 function renderFormPills() {
@@ -1575,6 +1733,9 @@ window._onReceiptPicked = async function() {
 
 window._setPaidBy = function(id) {
   f.paidBy = id;
+  // A repeating expense whose payer left opens with no payer chosen; picking
+  // one is what makes it savable again.
+  validateForm();
   // Previously this read each button's onclick SOURCE to find a match. With
   // delegation there is no source to read — and data-member is what the
   // handler already dispatches on, so it is the honest thing to compare.
@@ -1584,6 +1745,8 @@ window._setPaidBy = function(id) {
 };
 
 window._toggleSplit = function(id, checked) {
+  // A changed member set is a new split: re-even it as for any expense.
+  f.keepWeights = false;
   if (checked) f.splitAmong.add(id); else f.splitAmong.delete(id);
   const cb = document.querySelector(`.member-check-pill input[data-member="${CSS.escape(id)}"]`);
   cb?.closest('.member-check-pill')?.classList.toggle('checked', checked);
@@ -1592,6 +1755,7 @@ window._toggleSplit = function(id, checked) {
 
 window._setSplitMethod = function(method) {
   f.splitType = method;
+  f.keepWeights = false;
   // Shares and percent read the same map in different units, so switching
   // between them starts clean rather than reinterpreting "2" as 0.02%.
   f.weights = {};
@@ -1626,6 +1790,11 @@ window._onCustomInput = function(memberId, val) {
   validateForm();
 };
 
+/** The Exact-split inputs as whole cents per member. */
+function customCentsFor(ids) {
+  return Object.fromEntries(ids.map(id => [id, Math.round((parseFloat(f.custom[id] || '0') || 0) * 100)]));
+}
+
 function getAmountCents() {
   const val = parseFloat(document.getElementById('f-amount')?.value || '0');
   return isNaN(val) ? 0 : Math.round(val * 100);
@@ -1639,6 +1808,10 @@ function getAmountCents() {
  */
 function seedWeights() {
   const ids = [...f.splitAmong];
+  if (f.keepWeights) {
+    for (const id of ids) if (!Number.isInteger(f.weights[id])) f.weights[id] = f.splitType === 'shares' ? 1 : 0;
+    return;
+  }
   if (f.splitType === 'shares') {
     for (const id of ids) if (!Number.isInteger(f.weights[id])) f.weights[id] = 1;
     return;
@@ -1782,10 +1955,7 @@ function updateWeightTotals() {
 function updateCustomRemaining() {
   const amountCents  = getAmountCents();
   const splitMembers = [...f.splitAmong];
-  const entered = splitMembers.reduce((s, id) => {
-    const v = parseFloat(f.custom[id] || '0');
-    return s + (isNaN(v) ? 0 : Math.round(v * 100));
-  }, 0);
+  const entered = Object.values(customCentsFor(splitMembers)).reduce((s, c) => s + c, 0);
   const remaining = amountCents - entered;
   const el = document.getElementById('f-remaining');
   if (!el) return;
@@ -1809,11 +1979,35 @@ function validateForm() {
   let valid = amountCents > 0 && splitMembers.length > 0;
 
   if (valid && f.splitType === 'custom') {
-    const customCents = Object.fromEntries(
-      splitMembers.map(id => [id, Math.round((parseFloat(f.custom[id] || '0') || 0) * 100)])
-    );
-    valid = validateCustomSplits(amountCents, customCents);
+    valid = validateCustomSplits(amountCents, customCentsFor(splitMembers));
   }
+  // The schedule is stepped from the due date, so it must be a real one, and
+  // an end before it would save a template that can never post. Said on the
+  // form, not only by a disabled button: an ended template opens this way.
+  const editingRow = f.editId ? recurring.find(t => t.id === f.editId) : null;
+  // The template as this form knows it is stored (a posting run may have
+  // moved its date on, f.formNext).
+  const storedRow = editingRow ? { ...editingRow, next_due_date: f.formNext ?? editingRow.next_due_date } : null;
+  const startValue = document.getElementById('f-date')?.value ?? '';
+  const endValue = document.getElementById('f-end')?.value ?? '';
+  const scheduleError = f.repeat === 'none' ? null : scheduleFormError(startValue, endValue, hubToday(), storedRow);
+  // A due date in the past adds every occurrence since, the moment it saves,
+  // charged to the payer chosen here. Said before saving, so it is a choice.
+  const backfillLine = document.getElementById('f-backfill-note');
+  if (backfillLine) {
+    const live = !storedRow || Number(storedRow.active) === 1;
+    const today = hubToday();
+    const count = f.repeat === 'none' || scheduleError || !live || !(startValue < today) ? 0 : dueOccurrences({
+      active: 1, cadence: f.repeat, next_due_date: startValue, end_date: endValue || null,
+      anchor_day: anchorForSave(storedRow, startValue, f.repeat),
+    }, today, MAX_POSTS_PER_RUN).length;
+    backfillLine.textContent = count === 0 ? ''
+      : `Saving adds ${count === 1 ? 'one expense' : `${count} expenses`} at once, due since ${fmtDate(startValue)}, paid by the payer chosen here. Move the due date to skip ${count === 1 ? 'it' : 'them'}.`;
+    backfillLine.hidden = count === 0;
+  }
+  const scheduleLine = document.getElementById('f-schedule-error');
+  if (scheduleLine) { scheduleLine.textContent = scheduleError ?? ''; scheduleLine.hidden = !scheduleError; }
+  if (valid && f.repeat !== 'none') valid = !scheduleError && !!f.paidBy && memberMap.has(f.paidBy);
   if (valid && f.splitType === 'shares')  valid = validateShares(f.weights, splitMembers);
   if (valid && f.splitType === 'percent') {
     valid = validateCategoryPercents(
@@ -1827,14 +2021,13 @@ function validateForm() {
 window._submitExpense = async function() {
   const origin = modalEl;
   if (origin?.dataset.saving === '1') return;
+  if (f.repeat !== 'none') return submitRecurring(origin);
   const amountCents  = getAmountCents();
   const description  = document.getElementById('f-desc')?.value.trim() || 'Expense';
   const date         = document.getElementById('f-date')?.value || hubToday();
   const splitMembers = [...f.splitAmong];
 
-  const customCents = f.splitType === 'custom'
-    ? Object.fromEntries(splitMembers.map(id => [id, Math.round((parseFloat(f.custom[id] || '0') || 0) * 100)]))
-    : {};
+  const customCents = f.splitType === 'custom' ? customCentsFor(splitMembers) : {};
 
   // The SOURCE, not f.splitType: leaving the form on Equal over a category
   // that carries a saved 70/30 rule produces a 70/30 split, and storing
@@ -1905,8 +2098,701 @@ window._submitExpense = async function() {
   publishEvent('expense.created', expId, { description, amount_cents: amountCents });
 };
 
+/* ── Repeating expenses ──────────────────────────────── */
+// A template row in recurring_expenses. Each due date is posted as an ordinary
+// expense (see occurrenceStatements in logic.js), so everything downstream of
+// the ledger works on occurrences without knowing they repeat.
+
+/** Whether an edit leaves someone due a reminder who has not had one for
+ *  this occurrence: the date moved, the audience widened, or the payer
+ *  changed. */
+function remindAgain(stored, saved) {
+  return saved.next_due_date !== stored.next_due_date
+    || saved.remind_to !== stored.remind_to
+    || saved.paid_by !== stored.paid_by;
+}
+
+/** Whether a template is held right now (templateProblem), for the reminder
+ *  columns every write derives. */
+function heldNow(template) {
+  return !!templateProblem(template, new Set(members.map(m => m.id)), categorySplits);
+}
+
+const RECURRING_CHANGED = 'This repeating expense was changed by someone else — check it first.';
+
+// This page's own posting must never move a template under one of its own
+// template writes, or the write is refused as somebody else's change. A write
+// waits for a run already in flight (which hands an open edit form the stamp
+// it wrote, syncOpenEditForm), and holds off any run that would start while it
+// is in flight: those are deferred until the last write finishes.
+let templateWrites = 0;
+let postingDeferred = false;
+async function withPostingHeld(fn) {
+  templateWrites += 1;
+  try {
+    if (postingRun) await postingRun.catch(() => {});
+    return await fn();
+  } finally {
+    templateWrites -= 1;
+    if (templateWrites === 0 && postingDeferred) {
+      postingDeferred = false;
+      postDueRecurring().catch(e => console.error('posting repeating expenses failed', e));
+    }
+  }
+}
+
+function submitRecurring(origin) {
+  origin.dataset.saving = '1';
+  const waiting = origin.querySelector('#f-save-btn');
+  if (waiting) { waiting.disabled = true; waiting.textContent = 'Saving…'; }
+  return withPostingHeld(async () => {
+    delete origin.dataset.saving;
+    if (modalEl !== origin) return;
+    await saveRecurring(origin);
+  });
+}
+
+async function saveRecurring(origin) {
+  let editing = f.editId ? recurring.find(t => t.id === f.editId) ?? null : null;
+  if (f.editId && !editing) {
+    // Missing from the page's copy means removed only when a read just said
+    // so. Without one, the form stays open as typed and says to try again.
+    const read = await rereadAndRender({ withRecurring: true });
+    // `f` and the inputs belong to whichever form is open now. If this one was
+    // closed during the read, another may have taken them: stop here rather
+    // than save its id and values as this form's.
+    if (modalEl !== origin) {
+      toast('That change was not saved: its form was closed first.', 'error');
+      return;
+    }
+    editing = recurring.find(t => t.id === f.editId) ?? null;
+    if (!editing) {
+      if (!read || recurringFailed) {
+        saveFailed(origin, origin.querySelector('#f-save-btn'), saveLabel(),
+          'Couldn’t check this repeating expense just now — try again.');
+        return;
+      }
+      closeModalIfCurrent(origin);
+      toast('This repeating expense has been removed.', 'error');
+      return;
+    }
+  }
+  const amountCents  = getAmountCents();
+  const description  = document.getElementById('f-desc')?.value.trim() || 'Expense';
+  const date         = document.getElementById('f-date')?.value || hubToday();
+  const endDate      = document.getElementById('f-end')?.value || null;
+  const remindScope  = document.getElementById('f-remind')?.value || 'payer';
+  const splitMembers = [...f.splitAmong];
+  // One map whose unit follows split_type: cents for Exact, shares or basis
+  // points for those methods, nothing for Equal (which may follow a category
+  // rule when each occurrence posts).
+  const weights = f.splitType === 'custom'
+    ? customCentsFor(splitMembers)
+    : f.splitType === 'equal'
+      ? {}
+      : Object.fromEntries(splitMembers.map(id => [id, f.weights[id] ?? 0]));
+
+  // Pinned per form: a retry after a lost answer reuses the id and the stamp,
+  // so the re-read can tell an earlier attempt that landed from one that did not.
+  if (!origin.recurringPin) origin.recurringPin = { id: crypto.randomUUID(), now: new Date().toISOString() };
+  const { id: newId, now } = origin.recurringPin;
+  const id = editing ? editing.id : newId;
+
+  // The template as this form knows it is stored. A posting run may have moved
+  // it on while the form was open (syncOpenEditForm sets f.formNext even when
+  // its re-read failed), and comparing the date against a stale copy would
+  // read "unchanged" as "changed" and drop the stored anchor day.
+  const storedTerms = editing && f.formNext ? { ...editing, next_due_date: f.formNext } : editing;
+  // A TEMPLATE keeps the method picked on the form, unlike an expense, which
+  // records the rule that actually split it. An occurrence on Equal follows
+  // the category's saved rule as it stands on the day it posts, and records
+  // that rule as its own split_type then (occurrenceSplits in logic.js).
+  const pickedMethod = f.splitType;
+  const row = {
+    id, description, amount_cents: amountCents, category: f.category, paid_by: f.paidBy,
+    split_type: pickedMethod, split_members: JSON.stringify(splitMembers), split_weights: JSON.stringify(weights),
+    cadence: f.repeat, anchor_day: anchorForSave(storedTerms, date, f.repeat), next_due_date: date, end_date: endDate,
+    active: editing ? Number(editing.active) : 1, remind_scope: remindScope,
+    last_reminded_at: editing?.last_reminded_at ?? null,
+    created_by: editing?.created_by ?? ME.id, created_at: editing?.created_at ?? now, updated_at: now,
+  };
+  Object.assign(row, reminderColumns(row, heldNow(row)));
+
+  const label = saveLabel();
+  const btn = origin?.querySelector('#f-save-btn');
+  origin.dataset.saving = '1';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  try {
+    if (editing) {
+      // Guarded by the stamp the form opened with: posting an occurrence moves
+      // it too, so an edit made on a stale copy is refused, not merged.
+      await dbBatch([{
+        // A moved due date, a wider audience or a new payer is someone to
+        // remind who has not been: the hub's dedupe would otherwise read the
+        // earlier reminder's stamp as covering them.
+        sql: `UPDATE app_expense_splitter__recurring_expenses SET description = ?, amount_cents = ?, category = ?, paid_by = ?, split_type = ?, split_members = ?, split_weights = ?, cadence = ?, anchor_day = ?, next_due_date = ?, end_date = ?, remind_scope = ?, remind = ?, remind_to = ?, updated_at = ?${remindAgain(storedTerms, row) ? ', last_reminded_at = NULL' : ''} WHERE id = ? AND updated_at = ?`,
+        params: [row.description, row.amount_cents, row.category, row.paid_by, row.split_type, row.split_members,
+          row.split_weights, row.cadence, row.anchor_day, row.next_due_date, row.end_date, row.remind_scope,
+          row.remind, row.remind_to, now, id, f.editStamp],
+        requireChanges: true,
+      }]);
+    } else {
+      await db(
+        'INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [id, row.description, row.amount_cents, row.category, row.paid_by, row.split_type, row.split_members,
+          row.split_weights, row.cadence, row.anchor_day, row.next_due_date, row.end_date, row.active,
+          row.remind_scope, row.remind, row.remind_to, row.created_by, now, now]);
+    }
+  } catch (e) {
+    const conflict = isStaleConflict(e);
+    if (!conflict && !outcomeUnknown(e)) {
+      delete origin.recurringPin;
+      console.error('submitRecurring failed', e);
+      saveFailed(origin, btn, label, failureLine(e, { action: 'save the repeating expense', thing: 'repeating expense' }));
+      if (modalEl === origin) validateForm();
+      return;
+    }
+    const reread = await rereadAndRender({ withRecurring: true });
+    const current = recurring.find(t => t.id === id);
+    const stampLanded = reread && current?.updated_at === now;
+    const outcome = pinnedWriteOutcome({
+      conflict, reread,
+      landed: stampLanded && sameTemplateTerms(current, row),
+      found: recurringFailed ? undefined : !!current,
+    });
+    if (outcome !== 'landed' && stampLanded) {
+      // An earlier try of this form went through, with the values it had then,
+      // and this one changed something since. The card now shows what is
+      // stored; saving again from this form would be a second template, so it
+      // closes and says so.
+      delete origin.recurringPin;
+      closeModalIfCurrent(origin);
+      toast('An earlier save of this went through with the values it had then. Check it, and edit it again if needed.', 'error');
+      return;
+    }
+    if (outcome !== 'landed') {
+      if (outcome === 'removed' || outcome === 'changed') delete origin.recurringPin;
+      if (!conflict) console.error('submitRecurring failed', e);
+      saveFailed(origin, btn, label,
+        outcome === 'changed' ? RECURRING_CHANGED
+        : outcome === 'removed' ? 'This repeating expense has been removed.'
+        : failureLine(outcome === 'failed' && reread ? e : null, { action: 'save the repeating expense', thing: 'repeating expense' }));
+      if (modalEl === origin) validateForm();
+      return;
+    }
+  }
+
+  // Saved — by this attempt, or by an earlier one whose answer was lost.
+  recurring = recurring.some(t => t.id === id)
+    ? recurring.map(t => (t.id === id ? { ...t, ...row } : t))
+    : [...recurring, row];
+  closeModalIfCurrent(origin);
+  renderAll();
+  toast(editing ? 'Repeating expense updated' : 'Repeating expense saved', 'success');
+  postDueRecurring().catch(e => console.error('posting repeating expenses failed', e));
+}
+
+// One run at a time per page. Claimed before the first await, so a second
+// call while a run is in flight cannot start another that posts the same
+// dates. It asks for one more pass instead: the run in flight iterates the
+// templates as they were when it started, and a template saved since then
+// would otherwise wait for the next open.
+let postingRun = null;
+let postingAgain = false;
+let lastPostingDay = null;   // the household day the last successful run looked at
+// The ledger on screen may be missing expenses this page posted: a run's
+// closing re-read failed. Cleared by any successful re-read.
+let ledgerStale = false;
+
+/**
+ * One posting run: as many passes as a backlog needs, then ONE re-read, one
+ * repaint, one activity line per template and one toast. A pass that spends
+ * its budget hands the rest to the next pass while each makes progress, up to
+ * MAX_POSTING_PASSES; between passes the page's own copy of each template has
+ * already moved on with what it wrote, so no re-read is needed in between.
+ * Claimed before the first await: a call while a run is in flight asks for one
+ * more pass instead of starting a second run that would post the same dates.
+ */
+function postDueRecurring() {
+  if (templateWrites > 0) { postingDeferred = true; return postingRun ?? Promise.resolve(); }
+  if (postingRun) { postingAgain = true; return postingRun; }
+  postingRun = (async () => {
+    const run = { posted: [], writes: new Map(), failure: null, lastTry: null, attempted: false, today: null, capped: false, unsettled: false };
+    let retried = false;
+    do {
+      postingAgain = false;
+      const { conflicted = false } = (await postingPass(run)) ?? {};
+      if (run.failure) break;
+      // A guard that missed means this page's copy of a template was stale:
+      // re-read, then one more pass from fresh rows. Once only, so a template
+      // that keeps conflicting cannot loop the page; one that is still
+      // conflicting then leaves the day open, so the page tries again later.
+      if (conflicted && !retried) { retried = true; await reread({ withRecurring: true }); postingAgain = true; }
+      else if (conflicted) run.unsettled = true;
+    } while (postingAgain);
+    await finishPostingRun(run);
+  })().finally(() => {
+    postingRun = null;
+    // A request that came in while the run was finishing (its re-read and
+    // report) would otherwise be lost: run it now.
+    if (postingAgain) {
+      postingAgain = false;
+      postDueRecurring().catch(e => console.error('posting repeating expenses failed', e));
+    }
+  });
+  return postingRun;
+}
+
+/**
+ * One pass: every occurrence that has come due, oldest first, chained up to
+ * eight to a transaction (postingBatches), within MAX_POSTS_PER_RUN. Adults
+ * only: the tables are adult_writable, so anyone else's writes would be
+ * refused anyway. Another adult posting at the same moment makes a batch here
+ * change nothing (a guard misses) and it is rolled back whole. Records what it
+ * did on `run`; finishPostingRun re-reads and reports.
+ */
+async function postingPass(run) {
+  if (!IS_ADULT || !DB) return;
+  const today = hubToday();
+  if (!today) return;
+  // Before a run writes anything, its inputs are read fresh: the roster and
+  // the category rules decide every split, and a change to either made
+  // elsewhere does not move a template's stamp, so its guard would let a page
+  // left open overnight post with yesterday's allocation. Read once per run,
+  // and only when there is work to do (or the template list never loaded), so
+  // an idle check sends nothing. A failed read posts nothing and leaves the
+  // day open for the next check.
+  if (!run.refreshed) {
+    run.refreshed = true;
+    if (recurringFailed || hasPostingWork(today)) {
+      try {
+        await Promise.all([loadMembers(), loadData({ withRecurring: true })]);
+      } catch (e) {
+        console.error('refreshing before posting failed', e);
+        run.unsettled = true;
+        return;
+      }
+      ledgerStale = false;
+      recompute();
+      renderAll();
+      if (recurringFailed) { run.unsettled = true; return; }
+    }
+  }
+  run.today = today;
+  const roster = new Set(members.map(m => m.id));
+  // Built once: each due date is then a lookup, not a scan of the ledger.
+  const postedKeys = postedOccurrenceKeys(expenses);
+  // Held or not, decided once per template per pass.
+  const held = new Map(recurring.map(t => [t.id, !!templateProblem(t, roster, categorySplits)]));
+  // One budget for the whole run, across its passes.
+  if (run.budget === undefined) run.budget = MAX_POSTS_PER_RUN;
+  let budget = run.budget, conflicted = false;
+
+  // Reminder columns for every template that is not due now, decided before
+  // posting starts so a pass that stops early (budget spent, a failure) still
+  // fixes them. A held template stops announcing an occurrence that will not
+  // post, and one whose hold has cleared starts again. A due template's own
+  // posting writes its columns. Best-effort: the card already says what is
+  // wrong, and a failure costs only a reminder.
+  const syncs = [];
+  for (const template of recurring) {
+    const isHeld = held.get(template.id);
+    if (!isHeld && dueOccurrences(template, today, 1).length > 0) continue;
+    const statement = reminderSyncStatement(template, isHeld);
+    if (statement) syncs.push({ statement, id: template.id, columns: reminderColumns(template, isHeld) });
+  }
+
+  templates:
+  for (const template of [...recurring]) {
+    if (budget <= 0) break;
+    if (held.get(template.id)) continue;
+    const due = dueOccurrences(template, today, budget);
+    if (due.length === 0) continue;
+    const now = new Date().toISOString();
+    const batches = postingBatches(template, due, occurrenceSplits(template, categorySplits), {
+      // Already in the ledger: an edit moved the template back onto a date it
+      // had posted. It advances past that date without a second copy.
+      isPosted: date => postedKeys.has(`${template.id}|${date}`),
+      newId: () => crypto.randomUUID(),
+      now,
+    });
+    for (const batch of batches) {
+      run.attempted = true;
+      const attempt = { template, items: batch.items, now, next_due_date: batch.next_due_date };
+      try {
+        await dbBatch(batch.statements);
+      } catch (e) {
+        // Someone else moved this template first (a guard missed), or posted a
+        // date this page's ledger had not caught up with (the UNIQUE backstop).
+        // Either way the batch rolled back whole; the re-read shows what they
+        // did, and the other templates still get their turn.
+        if (isStaleConflict(e) || isDuplicate(e)) { conflicted = true; continue templates; }
+        run.failure = e;
+        run.lastTry = attempt;
+        break templates;
+      }
+      budget -= batch.statements.filter(st => st.requireChanges).length;
+      run.budget = budget;
+      recordPost(run, template, now, batch.next_due_date);
+      run.posted.push(...batch.items.map(item => ({ template, ...item })));
+      // The page's copy moves on with what this batch wrote, so the next pass
+      // (and the next batch's guard) starts from the row as it now stands.
+      const moved = { ...template, next_due_date: batch.next_due_date, updated_at: now };
+      Object.assign(moved, reminderColumns(moved));
+      recurring = recurring.map(t => (t.id === template.id ? moved : t));
+    }
+  }
+  // The reminder syncs go together, after the posting, in as few round trips as
+  // the batch cap allows. Each is independent and best-effort, so none may roll
+  // the others back: none carries requireChanges, and one whose guard misses
+  // changes nothing. They are applied to the page's copy as sent.
+  for (let i = 0; i < syncs.length; i += MAX_BATCH_STATEMENTS) {
+    run.attempted = true;
+    const chunk = syncs.slice(i, i + MAX_BATCH_STATEMENTS);
+    try {
+      await dbBatch(chunk.map(({ statement }) => statement));
+      // Assumed to have taken, so the next pass does not send them again.
+      for (const { id, columns } of chunk) recurring = recurring.map(t => (t.id === id ? { ...t, ...columns } : t));
+    } catch (e) { console.error('syncing repeating-expense reminders failed', e); }
+  }
+  // Budget spent: there may be more due, for the page's next check.
+  if (budget <= 0) run.capped = true;
+  return { conflicted };
+}
+
+/** Whether the page's copy shows anything for a run to write: an occurrence
+ *  due, or reminder columns out of line. Decides whether a run must refresh
+ *  its inputs first; the refreshed rows then decide what is actually written. */
+function hasPostingWork(today) {
+  const roster = new Set(members.map(m => m.id));
+  return recurring.some(t => {
+    const held = !!templateProblem(t, roster, categorySplits);
+    return (!held && dueOccurrences(t, today, 1).length > 0) || !!reminderSyncStatement(t, held);
+  });
+}
+
+/**
+ * Records that this run moved a template, and from which version: `from` is
+ * the stamp the run's first post of it guarded on. `foreign` notes that some
+ * other writer moved it between this run's posts (a later pass started from a
+ * stamp this run did not write). An open edit form may only follow the run's
+ * stamp when it was opened on `from` with nothing foreign since
+ * (syncOpenEditForm): otherwise its fields are another version's.
+ */
+function recordPost(run, template, now, nextDue) {
+  const prev = run.writes.get(template.id);
+  const foreign = !!prev && (prev.foreign
+    || (template.updated_at !== prev.from && template.updated_at !== prev.now));
+  run.writes.set(template.id, { from: prev ? prev.from : template.updated_at, now, next_due_date: nextDue, foreign });
+}
+
+/** The run's one re-read, repaint and report. */
+async function finishPostingRun(run) {
+  // A run that only synced reminder columns has already applied them to the
+  // page's copy; there is nothing new to read. Posting, a conflict or a
+  // failure needs the server's rows: the expenses and splits it added, what
+  // another adult did, whether a lost answer landed.
+  const needsRead = run.posted.length > 0 || run.writes.size > 0 || run.failure || run.unsettled;
+  if (run.attempted && !needsRead) renderRecurring();
+  if (run.attempted && needsRead) {
+    const fresh = await reread({ withRecurring: true });
+    // Posted but not re-read: the templates have moved on, so no later check
+    // would find anything due and read again. The ledger is marked stale and
+    // re-read on its own (watchForDueDates) until a read succeeds.
+    if (!fresh) ledgerStale = true;
+    // An answer lost on the way back: the re-read says whether it landed. The
+    // template row decides, not the expenses: a batch that only moved past
+    // dates already in the ledger adds none. Reaching this batch's last date
+    // with this run's stamp can only be this batch's doing. With no fresh
+    // rows, nothing is known, and the failure stands.
+    const last = run.lastTry;
+    if (run.failure && last && fresh && outcomeUnknown(run.failure)) {
+      const row = recurring.find(t => t.id === last.template.id);
+      if (row && row.updated_at === last.now && row.next_due_date === last.next_due_date) {
+        run.posted.push(...last.items.map(item => ({ template: last.template, ...item })));
+        recordPost(run, last.template, last.now, last.next_due_date);
+        run.failure = null;
+      }
+    }
+    recompute();
+    renderAll();
+    syncOpenEditForm(run.writes, fresh);
+    // A lost answer with no fresh rows to settle it: the expense may be in the
+    // ledger already. "Couldn't add" would invite adding it by hand, twice.
+    announcePosted(run.posted, run.failure, { unconfirmed: !!run.failure && !fresh && outcomeUnknown(run.failure) });
+  }
+  // Only a run that did not fail, did not stop at its cap with more still
+  // due, and was not left with a template still conflicting, counts as having
+  // looked at today: otherwise a page left on screen carries on at its next
+  // quarter-hour check.
+  if (!run.failure && !run.capped && !run.unsettled && run.today) lastPostingDay = run.today;
+}
+
+/**
+ * One activity line per template per run, so a backlog reads as one entry
+ * rather than two dozen, and one toast. The event stays one per expense: each
+ * is a real expense, and an automation subscribed to expense.created acts per
+ * expense.
+ */
+const EVENT_GROUP = 5;
+function announcePosted(posted, failure, { unconfirmed = false } = {}) {
+  const byTemplate = new Map();
+  for (const p of posted) {
+    if (!byTemplate.has(p.template.id)) byTemplate.set(p.template.id, []);
+    byTemplate.get(p.template.id).push(p);
+  }
+  // In the background, a few at a time: a year's backlog is hundreds of
+  // events, and a burst of that many at once is what a rate limit refuses,
+  // while one at a time would trickle for minutes.
+  (async () => {
+    for (let i = 0; i < posted.length; i += EVENT_GROUP) {
+      await Promise.all(posted.slice(i, i + EVENT_GROUP).map(p => publishEvent('expense.created', p.expenseId,
+        { description: p.template.description, amount_cents: p.template.amount_cents })));
+    }
+  })();
+  for (const group of byTemplate.values()) {
+    const first = group[0], last = group[group.length - 1];
+    const when = group.length === 1
+      ? `for ${fmtDate(first.date)}`
+      : `${group.length} times, ${fmtDate(first.date)} to ${fmtDate(last.date)}`;
+    logActivity('finance_transaction_added', `"${first.template.description}" was added ${when} (repeating)`, {
+      deepLink: { appId: APP_ID, params: { expenseId: last.expenseId } },
+    });
+  }
+  if (posted.length === 1) toast(`Added ${posted[0].template.description} for ${fmtDate(posted[0].date)}`, 'success');
+  else if (posted.length > 1) toast(`Added ${posted.length} repeating expenses`, 'success');
+  if (failure) {
+    console.error('posting a repeating expense failed', failure);
+    toast(unconfirmed
+      ? 'Couldn’t confirm a repeating expense was added. Reload to check before adding it by hand.'
+      : failureLine(failure, { action: 'add a repeating expense', thing: 'repeating expense' }), 'error');
+  }
+}
+
+/**
+ * An edit form left open while this page posted its template would save
+ * against the stamp it opened with and be refused as "changed by someone
+ * else" when nobody else touched it, but only when the form holds the
+ * version the run posted from (see recordPost). A posting batch is certain once it
+ * answered (its guards required it), so the form takes the run's stamp even
+ * when the closing re-read failed; with fresh rows, only while no later write
+ * has moved the row since. An untouched due date moves on with the template,
+ * and the form says why. Reminder syncs need nothing here: they leave
+ * updated_at alone.
+ */
+function syncOpenEditForm(writes, fresh) {
+  if (!modalEl || modalEl !== f.formEl || !f.editId) return;
+  const write = writes.get(f.editId);
+  if (!write) return;
+  const row = fresh ? recurring.find(t => t.id === f.editId) : null;
+  if (fresh && row?.updated_at !== write.now) return;
+  // Only a form opened on the version this run posted from. The run reads
+  // templates fresh before it posts, so it may have posted from another
+  // adult's edit; a form still holding the version before that edit must keep
+  // its old stamp and be refused, or saving it would quietly undo their change.
+  if (write.foreign || f.editStamp !== write.from) return;
+  f.editStamp = write.now;
+  const next = row?.next_due_date ?? write.next_due_date;
+  const dateEl = document.getElementById('f-date');
+  if (dateEl && dateEl.value === f.formNext) dateEl.value = next;
+  f.formNext = next;
+  const note = document.getElementById('f-sync-note');
+  if (note) {
+    note.textContent = `It was just added for its due date. Next due is now ${fmtDate(next)}.`;
+    note.hidden = false;
+  }
+  validateForm();
+}
+
+/**
+ * A page left open across a due date posts it when it is next looked at, and
+ * a page that stays on screen (a kiosk) checks for a new household day every
+ * quarter hour. Neither sends anything when nothing is due: runPosting works
+ * from rows already loaded, and its guards refuse a stale copy.
+ */
+let watchingDueDates = false;
+function watchForDueDates() {
+  // Once per page: "Try again" re-runs init(), and a second registration
+  // would stack another listener and another timer on every retry.
+  if (watchingDueDates) return;
+  watchingDueDates = true;
+  const post = () => postDueRecurring().catch(e => console.error('posting repeating expenses failed', e));
+  // A ledger left stale by a failed re-read is repaired on its own, whether or
+  // not anything else is due.
+  const repair = () => {
+    if (ledgerStale) rereadAndRender({ withRecurring: true }).catch(() => {});
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { repair(); post(); }
+  });
+  setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    repair();
+    if (hubToday() !== lastPostingDay) post();
+  }, 15 * 60 * 1000);
+}
+
+function renderRecurring() {
+  const el = document.getElementById('recurring-list');
+  if (!el) return;
+  if (recurringFailed) {
+    el.innerHTML = `<p class="hint" data-testid="recurring-error" style="margin:0 0 12px">Couldn’t load repeating expenses, so none were added this time.</p>`;
+    return;
+  }
+  if (recurring.length === 0) { el.innerHTML = ''; return; }
+  const roster = new Set(members.map(m => m.id));
+  el.innerHTML = `<div class="section-label">Repeating</div>`
+    + recurring.map(t => recurringCard(t, roster)).join('')
+    + `<div style="height:12px"></div>`;
+}
+
+function recurringCard(t, roster) {
+  const active  = Number(t.active) === 1;
+  const ended   = templateEnded(t);
+  const problem = active && !ended ? templateProblem(t, roster, categorySplits) : null;
+  const badge = problem ? ['badge-pending', 'Needs attention']
+    : !active ? ['badge-cancelled', 'Paused']
+    : ended   ? ['badge-cancelled', 'Ended']
+    : ['badge-locked', 'Active'];
+  const actions = [];
+  if (IS_ADULT) {
+    actions.push(`<button class="btn-sm" data-action="editRecurring" data-recurring="${esc(t.id)}">Edit</button>`);
+    if (!ended) {
+      actions.push(active
+        ? `<button class="btn-sm" data-testid="pause-recurring" data-action="pauseRecurring" data-recurring="${esc(t.id)}">Pause</button>`
+        : `<button class="btn-sm" data-testid="resume-recurring" data-action="resumeRecurring" data-recurring="${esc(t.id)}">Resume</button>`);
+    }
+    actions.push(`<button class="btn-sm" data-action="deleteRecurring" data-recurring="${esc(t.id)}">Stop</button>`);
+  }
+  return `
+    <div class="request-card" data-testid="recurring-card" data-recurring-id="${esc(t.id)}">
+      <div class="request-head">
+        <div>
+          <div class="request-title">${glyph('repeat')} ${esc(t.description)}</div>
+          <div class="request-sub" data-testid="recurring-schedule">${esc(scheduleLabel(t))} · ${esc(memberName(t.paid_by))} pays</div>
+        </div>
+        <div class="request-amount">${fmtMoney(t.amount_cents)}</div>
+      </div>
+      <div class="request-foot">
+        <span class="badge ${badge[0]}">${esc(badge[1])}</span>
+        <span class="request-actions">${actions.join('')}</span>
+      </div>
+      ${problem ? `<p class="request-changed">${esc(problem)}</p>` : ''}
+    </div>`;
+}
+
+window._editRecurring = function(id) {
+  const t = recurring.find(x => x.id === id);
+  if (t) window._openAdd(t);
+};
+
+const recurringBusy = new Set();
+
+// The card's own button says the click took while its write (and any posting
+// run it waits behind) is in flight. Any repaint restores the card.
+function markRecurringBusy(id, action, label) {
+  const btn = document.querySelector(`[data-action="${action}"][data-recurring="${CSS.escape(id)}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = label; }
+}
+
+/** Pause or resume. Resuming skips what fell due while paused: it restarts at
+ *  the first occurrence on or after today, which posts at once if that is today. */
+window._setRecurringActive = async function(id, on) {
+  if (!recurring.some(x => x.id === id) || recurringBusy.has(id)) return;
+  recurringBusy.add(id);
+  markRecurringBusy(id, on ? 'resumeRecurring' : 'pauseRecurring', on ? 'Resuming…' : 'Pausing…');
+  // Never while this page's own posting run moves the template: its closing
+  // re-read could land after this write and put the old row back on screen.
+  await withPostingHeld(() => setRecurringActive(id, on));
+};
+
+async function setRecurringActive(id, on) {
+  const t = recurring.find(x => x.id === id);
+  if (!t) { recurringBusy.delete(id); renderRecurring(); return; }
+  const now = new Date().toISOString();
+  const next = on ? resumeDate(t, hubToday()) : t.next_due_date;
+  const updated = { ...t, active: on ? 1 : 0, next_due_date: next, updated_at: now };
+  Object.assign(updated, reminderColumns(updated, heldNow(updated)));
+  const action = on ? 'resume the repeating expense' : 'pause the repeating expense';
+  try {
+    await dbBatch([{
+      sql: `UPDATE app_expense_splitter__recurring_expenses SET active = ?, next_due_date = ?, remind = ?, remind_to = ?, updated_at = ?${next !== t.next_due_date ? ', last_reminded_at = NULL' : ''} WHERE id = ? AND updated_at = ?`,
+      params: [updated.active, next, updated.remind, updated.remind_to, now, id, t.updated_at],
+      requireChanges: true,
+    }]);
+  } catch (e) {
+    const conflict = isStaleConflict(e);
+    const reread = conflict || outcomeUnknown(e) ? await rereadAndRender({ withRecurring: true }) : false;
+    const current = recurring.find(x => x.id === id);
+    const outcome = pinnedWriteOutcome({
+      conflict, reread, landed: reread && current?.updated_at === now,
+      found: reread && !recurringFailed ? !!current : undefined,
+    });
+    if (outcome !== 'landed') {
+      recurringBusy.delete(id);
+      renderRecurring();
+      if (!conflict) console.error('setRecurringActive failed', e);
+      toast(outcome === 'changed' ? RECURRING_CHANGED
+        : outcome === 'removed' ? 'This repeating expense has been removed.'
+        // An answer that never came back, with no re-read to settle it, says
+        // only "try again"; a refusal the hub named says what it was.
+        : failureLine(outcome === 'failed' && (reread || !outcomeUnknown(e)) ? e : null, { action, thing: 'repeating expense' }), 'error');
+      return;
+    }
+  }
+  recurringBusy.delete(id);
+  recurring = recurring.map(x => (x.id === id ? { ...x, ...updated } : x));
+  renderAll();
+  toast(on ? 'Resumed' : 'Paused', 'success');
+  if (on) postDueRecurring().catch(e => console.error('posting repeating expenses failed', e));
+};
+
+/** Stops a repeating expense. What it already added stays in the ledger:
+ *  those are real expenses, settled or not. */
+window._deleteRecurring = async function(id) {
+  const t = recurring.find(x => x.id === id);
+  if (!t || recurringBusy.has(id)) return;
+  const confirmed = await hubConfirm(
+    `Stop “${t.description}”? Nothing more will be added. Expenses it already added stay in the ledger.`, 'Stop');
+  if (!confirmed) return;
+  recurringBusy.add(id);
+  markRecurringBusy(id, 'deleteRecurring', 'Stopping…');
+  await withPostingHeld(() => stopRecurring(id));
+};
+
+async function stopRecurring(id) {
+  let failed = null;
+  try {
+    // changed: 0 is success too: the row is gone either way.
+    await db('DELETE FROM app_expense_splitter__recurring_expenses WHERE id = ?', [id]);
+  } catch (e) {
+    failed = e;
+    // An answer lost on the way back: the re-read says whether the row went.
+    if (outcomeUnknown(e) && await rereadAndRender({ withRecurring: true }) && !recurringFailed && !recurring.some(x => x.id === id)) failed = null;
+  }
+  recurringBusy.delete(id);
+  if (failed) {
+    renderRecurring();
+    console.error('deleteRecurring failed', failed);
+    toast(failureLine(failed, { action: 'stop the repeating expense', thing: 'repeating expense' }), 'error');
+    return;
+  }
+  recurring = recurring.filter(x => x.id !== id);
+  renderAll();
+  toast('Repeating expense stopped', 'success');
+};
+
 /* ── Expense Detail modal ────────────────────────────── */
 window._openDetail = function(expId) { openDetailModal(expId); };
+
+// Where a posted occurrence came from, said in words on its detail sheet.
+function recurringOrigin(exp) {
+  const t = recurring.find(x => x.id === exp.recurring_id);
+  // Not found means stopped only when the list was read; a failed read says nothing.
+  if (!t) return recurringFailed || recurringPending ? 'Added by a repeating expense' : 'Added by a repeating expense that has since been stopped';
+  return `${cadenceFor(t.cadence)?.label ?? 'Repeating'}, from “${t.description}”`;
+}
 
 function openDetailModal(expId) {
   const exp = expenses.find(e => e.id === expId);
@@ -1941,6 +2827,11 @@ function openDetailModal(expId) {
         <span class="detail-key">Split</span>
         <span class="detail-val">${esc(splitTypeLabel(exp.split_type))}</span>
       </div>
+      ${exp.recurring_id ? `
+      <div class="detail-row">
+        <span class="detail-key">Repeats</span>
+        <span class="detail-val">${esc(recurringOrigin(exp))}</span>
+      </div>` : ''}
 
       ${exp.receipt_file_id ? `
         <div class="section-label" style="margin-top:16px">Receipt</div>
@@ -2457,8 +3348,10 @@ window._agreeRequest = async function(id) {
     renderAll();
     toast('Confirmed', 'success');
   } catch (e) {
+    // 409 here is the agree endpoint saying the terms changed, not a missed
+    // requireChanges guard, so it keeps its own check.
     if (e.status === 409) {
-      try { await loadData(); recompute(); renderAll(); } catch { /* keep what is shown */ }
+      await rereadAndRender();
       toast(REQUEST_CHANGED, 'error');
       return;
     }
@@ -2534,15 +3427,14 @@ async function settleRequest(id, r) {
   } catch (e) {
     // An unmet requireChanges rolls the batch back: someone closed the request
     // first — or an earlier attempt of this one did, its answer lost.
-    const conflict = e?.status === 409 || /stale state/i.test(String(e?.message));
+    const conflict = isStaleConflict(e);
     if (!conflict && !outcomeUnknown(e)) {
       settlePins.delete(id);
       console.error('settleRequest failed', e);
       toast(failureLine(e, { action: 'record the payment', thing: 'request' }), 'error');
       return;
     }
-    let reread = false;
-    try { await loadData(); reread = true; recompute(); renderAll(); } catch (e2) { console.error('re-read after a write failed', e2); }
+    const reread = await rereadAndRender();
     const outcome = pinnedWriteOutcome({
       conflict, reread,
       landed: settlements.some(s => s.id === sid),
@@ -2634,8 +3526,10 @@ function logActivity(type, description, metadata) {
    Non-value-bearing notices — no money/points are minted from them — so no
    publish_acls gating is required. No push (alert_on intentionally omitted). */
 function publishEvent(type, subjectId, payload = {}) {
-  if (!DB) return;
-  fetch(EVENTS_URL, {
+  if (!DB) return Promise.resolve();
+  // Fire-and-forget for every caller but one: announcePosted awaits it to pace
+  // a backlog's events. It never rejects.
+  return fetch(EVENTS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source_app_id: APP_ID, type, subject_id: subjectId, payload }),

@@ -1069,6 +1069,577 @@
           "text": "They confirmed"
         }
       ]
+    },
+    {
+      "name": "a repeating expense whose due dates have passed adds each one once when an adult opens the app, and a second adult opening it adds no copies",
+      "members": {
+        "ana": "adult",
+        "sam": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES ('rent', 'Rent', 150000, 'household', ?, 'equal', ?, '{}', 'yearly', 15, '2020-01-15', '2021-01-15', 1, 'payer', 1, 'payer', ?, '2019-12-01T00:00:00Z', '2019-12-01T00:00:00Z')",
+          "params": [
+            "{{ana}}",
+            "[\"{{ana}}\", \"{{sam}}\"]",
+            "{{ana}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-marker\"]",
+          "count": 2
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-schedule\"]",
+          "text": "ended"
+        },
+        {
+          "action": "open",
+          "as": "sam"
+        },
+        {
+          "action": "click",
+          "as": "sam",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectVisible",
+          "as": "sam",
+          "selector": "[data-testid=\"recurring-card\"]"
+        },
+        {
+          "action": "expectCount",
+          "as": "sam",
+          "selector": "[data-testid=\"repeat-marker\"]",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "pausing a repeating expense holds it, and it stays paused after a reload",
+      "members": {
+        "ana": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#add-btn"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-amount",
+          "value": "80"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-desc",
+          "value": "Phone plan"
+        },
+        {
+          "action": "select",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-select\"]",
+          "value": "monthly"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-date",
+          "value": "2099-03-31"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#f-save-btn"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-schedule\"]",
+          "text": "next"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-marker\"]",
+          "count": 0
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"pause-recurring\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-schedule\"]",
+          "text": "paused"
+        },
+        {
+          "action": "reload",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-schedule\"]",
+          "text": "paused"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ana",
+          "selector": "[data-testid=\"resume-recurring\"]"
+        }
+      ]
+    },
+    {
+      "name": "stopping a repeating expense removes it but keeps the expenses it already added",
+      "members": {
+        "ana": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES ('rent', 'Rent', 150000, 'household', ?, 'equal', ?, '{}', 'yearly', 15, '2020-01-15', '2021-01-15', 1, 'payer', 1, 'payer', ?, '2019-12-01T00:00:00Z', '2019-12-01T00:00:00Z')",
+          "params": [
+            "{{ana}}",
+            "[\"{{ana}}\"]",
+            "{{ana}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-marker\"]",
+          "count": 2
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-schedule\"]",
+          "text": "ended"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-action=\"deleteRecurring\"]"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#conf-yes"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]",
+          "count": 0
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-marker\"]",
+          "count": 2
+        },
+        {
+          "action": "reload",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-marker\"]",
+          "count": 2
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]",
+          "count": 0
+        }
+      ]
+    },
+    {
+      "name": "editing a repeating expense saves the new terms and survives a reload",
+      "members": {
+        "ana": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#add-btn"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-amount",
+          "value": "80"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-desc",
+          "value": "Phone plan"
+        },
+        {
+          "action": "select",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-select\"]",
+          "value": "monthly"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-date",
+          "value": "2099-03-31"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#f-save-btn"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-action=\"editRecurring\"]"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-amount",
+          "value": "95"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-desc",
+          "value": "Phone and internet"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#f-save-btn"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]",
+          "text": "Phone and internet"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]",
+          "text": "95"
+        },
+        {
+          "action": "reload",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]",
+          "text": "Phone and internet"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-marker\"]",
+          "count": 0
+        }
+      ]
+    },
+    {
+      "name": "an ended repeating expense can be renamed without reviving it, and asks for an end date that fits before its dates move",
+      "members": {
+        "ana": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES ('rent', 'Rent', 150000, 'household', ?, 'equal', ?, '{}', 'yearly', 15, '2020-01-15', '2021-01-15', 1, 'payer', 1, 'payer', ?, '2019-12-01T00:00:00Z', '2019-12-01T00:00:00Z')",
+          "params": [
+            "{{ana}}",
+            "[\"{{ana}}\"]",
+            "{{ana}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-marker\"]",
+          "count": 2
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-schedule\"]",
+          "text": "ended"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-action=\"editRecurring\"]"
+        },
+        {
+          "action": "expectHidden",
+          "as": "ana",
+          "selector": "[data-testid=\"schedule-error\"]"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-desc",
+          "value": "Old rent"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#f-save-btn"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]",
+          "text": "Old rent"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-schedule\"]",
+          "text": "ended"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-action=\"editRecurring\"]"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-date",
+          "value": "2099-01-15"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"schedule-error\"]",
+          "text": "end date is before the due date"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ana",
+          "selector": "#f-save-btn:disabled"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-end",
+          "value": "2099-06-15"
+        },
+        {
+          "action": "expectHidden",
+          "as": "ana",
+          "selector": "[data-testid=\"schedule-error\"]"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#f-save-btn"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-schedule\"]",
+          "text": "next"
+        }
+      ]
+    },
+    {
+      "name": "a mistyped year on a repeating expense is refused before it can backfill years of expenses",
+      "members": {
+        "ana": "adult"
+      },
+      "steps": [
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#add-btn"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-amount",
+          "value": "20"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-desc",
+          "value": "Lunch money"
+        },
+        {
+          "action": "select",
+          "as": "ana",
+          "selector": "[data-testid=\"repeat-select\"]",
+          "value": "weekly"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "#f-date",
+          "value": "2006-11-01"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"schedule-error\"]",
+          "text": "more than a year ago"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ana",
+          "selector": "#f-save-btn:disabled"
+        }
+      ]
+    },
+    {
+      "name": "editing a percent split whose member has left keeps the agreed percentages and asks for 100%, rather than re-evening them",
+      "members": {
+        "ana": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES ('daycare', 'Daycare', 100000, 'other', ?, 'percent', ?, ?, 'monthly', 1, '2099-05-01', NULL, 1, 'payer', 1, 'payer', ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+          "params": [
+            "{{ana}}",
+            "[\"{{ana}}\",\"departed-member\"]",
+            "{\"{{ana}}\":6000,\"departed-member\":4000}",
+            "{{ana}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"recurring-card\"]",
+          "text": "Needs attention"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-action=\"editRecurring\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"weight-total\"]",
+          "text": "60.00%"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ana",
+          "selector": "#f-save-btn:disabled"
+        }
+      ]
     }
-  ]
+]
 }

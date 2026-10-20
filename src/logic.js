@@ -719,7 +719,7 @@ export function handleMap(rows) {
  */
 export function failureLine(e, { action, thing, found } = {}) {
   if (e?.forUser) return e.message;
-  if (e?.code === "UNIQUE_CONSTRAINT" || /UNIQUE constraint failed/i.test(String(e?.message ?? ""))) return `That ${thing} already exists.`;
+  if (isDuplicate(e)) return `That ${thing} already exists.`;
   if (e?.status === 403) return `You don’t have permission to ${action}.`;
   if (e?.status === 507) return "The household’s storage is full — free up space first.";
   if (found === false || (found === undefined && e?.status === 404)) return `This ${thing} has been removed.`;
@@ -736,7 +736,7 @@ export function failureLine(e, { action, thing, found } = {}) {
  */
 export function outcomeUnknown(e) {
   if (e?.forUser) return false;
-  if (e?.code === "UNIQUE_CONSTRAINT" || /UNIQUE constraint failed/i.test(String(e?.message ?? ""))) return true;
+  if (isDuplicate(e)) return true;
   const s = e?.status;
   return s == null || s === 400 || (s >= 500 && s !== 507);
 }
@@ -759,4 +759,435 @@ export function pinnedWriteOutcome({ conflict, reread, landed, found, parentFoun
   if (!parentFound) return "parent-removed";
   if (found === undefined) return "unknown";
   return found ? "changed" : "removed";
+}
+
+// ── Repeating expenses ──────────────────────────────────────────────────────
+//
+// A repeating expense is a TEMPLATE row (`recurring_expenses`). Each time one
+// comes due, the page posts it as an ordinary expense plus its splits, so
+// balances, settlements, reimbursements, reports and the receipt column all
+// treat an occurrence exactly like a hand-entered expense. Nothing on the hub
+// runs a schedule: an adult opening the app posts whatever has come due since
+// the last open, dated the day it was due, not the day it was noticed.
+//
+// Every date here is a household-local 'YYYY-MM-DD' string (hubToday), and
+// the arithmetic is done on calendar fields through Date.UTC, never on a local
+// Date, so no timezone or DST change can move an occurrence by a day.
+
+export const CADENCES = [
+  { id: 'weekly',  label: 'Weekly',  every: 'Every week' },
+  { id: 'monthly', label: 'Monthly', every: 'Every month' },
+  { id: 'yearly',  label: 'Yearly',  every: 'Every year' },
+];
+
+export function cadenceFor(id) {
+  return CADENCES.find(c => c.id === id) ?? null;
+}
+
+/** Who hears about an upcoming occurrence: the payer alone, the whole
+ *  household (which also puts it on the household calendar), or nobody. */
+export const REMIND_SCOPES = [
+  { id: 'payer',     label: 'Remind the payer' },
+  { id: 'household', label: 'Remind everyone and show on the calendar' },
+  { id: 'off',       label: 'No reminder' },
+];
+
+/** At most this many occurrences are posted per run. 288 covers five
+ *  templates each backfilled with a year of weekly dates (53), the most the
+ *  form lets one template reach back. Anything past it posts on the page's
+ *  next check (the run does not count the day as done). */
+export const MAX_POSTS_PER_RUN = 288;
+
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** { y, m, d } for a real calendar date, or null. '2026-02-30' is null. */
+export function parseIsoDate(s) {
+  const match = ISO_DATE.exec(typeof s === 'string' ? s : '');
+  if (!match) return null;
+  const y = Number(match[1]), m = Number(match[2]), d = Number(match[3]);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== d) return null;
+  return { y, m, d };
+}
+
+function isoDate(y, m, d) {
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** Days in month `m` (1-12) of year `y`. */
+export function daysInMonth(y, m) {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/**
+ * The occurrence after `date`.
+ *
+ * `anchorDay` is the day of the month the expense is really due. It is kept
+ * apart from the date because the date gets clamped: rent due on the 31st
+ * falls on 30 April and 28 February, and stepping from the clamped date would
+ * leave it on the 28th for ever after. With the anchor it returns to the 31st
+ * in March. A yearly expense anchored on 29 February lands on the 28th in
+ * common years and on the 29th again in leap years.
+ */
+export function nextOccurrence(date, cadence, anchorDay) {
+  const p = parseIsoDate(date);
+  if (!p) return null;
+  const anchor = Number.isInteger(anchorDay) && anchorDay >= 1 && anchorDay <= 31 ? anchorDay : p.d;
+  if (cadence === 'weekly') {
+    const t = new Date(Date.UTC(p.y, p.m - 1, p.d + 7));
+    return isoDate(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
+  }
+  let y = p.y, m = p.m;
+  if (cadence === 'monthly') {
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  } else if (cadence === 'yearly') {
+    y += 1;
+  } else {
+    return null;
+  }
+  return isoDate(y, m, Math.min(anchor, daysInMonth(y, m)));
+}
+
+function anchorOf(template) {
+  const n = Number(template?.anchor_day);
+  return Number.isInteger(n) ? n : undefined;
+}
+
+/** True once the next occurrence falls after the template's end date. */
+export function templateEnded(template) {
+  return !!template?.end_date && !!template.next_due_date && template.next_due_date > template.end_date;
+}
+
+/**
+ * The occurrences of `template` that are due on or before `today`, oldest
+ * first, each with the date the template moves on to once it is posted.
+ * Empty for a paused or ended template. Stops at `limit`.
+ */
+export function dueOccurrences(template, today, limit = MAX_POSTS_PER_RUN) {
+  if (!template || Number(template.active) !== 1 || !parseIsoDate(today)) return [];
+  const end = template.end_date || null;
+  const out = [];
+  let date = template.next_due_date;
+  while (out.length < limit && parseIsoDate(date) && date <= today && (!end || date <= end)) {
+    const next = nextOccurrence(date, template.cadence, anchorOf(template));
+    // Defensive: a step that does not move forward would loop for ever.
+    if (!next || next <= date) break;
+    out.push({ date, next });
+    date = next;
+  }
+  return out;
+}
+
+/**
+ * Where a resumed template picks up: its first occurrence on or after today.
+ * Pausing means the occurrences in between were skipped, so resuming must not
+ * post them all at once. Unchanged when the next occurrence is still ahead.
+ */
+export function resumeDate(template, today) {
+  let date = template?.next_due_date;
+  if (!parseIsoDate(date) || !parseIsoDate(today)) return date ?? null;
+  // Bounded: twenty years of weeks, far past any real pause.
+  for (let i = 0; i < 1100 && date < today; i++) {
+    const next = nextOccurrence(date, template.cadence, anchorOf(template));
+    if (!next || next <= date) break;
+    date = next;
+  }
+  return date;
+}
+
+/**
+ * The two reminder columns the hub's date_reminders protocol reads, derived
+ * from the template. `remind_scope` is the household's choice and is never
+ * rewritten. `remind` is the protocol's on/off switch and `remind_to` its
+ * audience column ('household' rows are emailed to everyone and projected onto
+ * the household calendar). A paused or ended template is switched off and
+ * narrowed to the payer, so the calendar never shows an occurrence that is not
+ * going to be posted. So is a HELD one (templateProblem): every write passes
+ * whether it is held, so no pause, resume or edit can switch a held
+ * template's reminders back on.
+ */
+export function reminderColumns(template, held = false) {
+  const live = Number(template?.active) === 1 && !templateEnded(template) && !held;
+  const scope = template?.remind_scope;
+  return {
+    remind: live && scope !== 'off' ? 1 : 0,
+    remind_to: live && scope === 'household' ? 'household' : 'payer',
+  };
+}
+
+export function parseJsonField(value, fallback) {
+  if (value && typeof value === 'object') return value;
+  if (typeof value !== 'string' || value === '') return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** The member ids a template splits between. */
+export function templateMembers(template) {
+  const ids = parseJsonField(template?.split_members, []);
+  return Array.isArray(ids) ? ids.filter(id => typeof id === 'string' && id) : [];
+}
+
+/**
+ * The splits one occurrence of `template` posts, or null when they cannot be
+ * computed honestly. The saved category rule is applied at posting time, the
+ * same as for an expense added by hand on Equal, so changing a rule changes
+ * the occurrences posted after it.
+ */
+export function occurrenceSplits(template, categorySplits = []) {
+  const amount = Number(template?.amount_cents);
+  const ids = templateMembers(template);
+  if (!Number.isInteger(amount) || amount <= 0 || ids.length === 0) return null;
+  const weights = parseJsonField(template.split_weights, {});
+  const type = template.split_type;
+  if (!SPLIT_METHODS.some(m => m.id === type)) return null;
+  const custom = type === 'custom' ? weights : {};
+  const result = computeSplitsWithCategory(
+    amount, ids, type, custom, categorySplits, template.category, type === 'custom' ? {} : weights);
+  const total = result.splits.reduce((s, x) => s + x.amount_cents, 0);
+  if (total !== amount || result.splits.some(x => !Number.isInteger(x.amount_cents) || x.amount_cents < 0)) return null;
+  return result;
+}
+
+/**
+ * Why a template cannot post right now, in words for the card, or null.
+ * `memberIds` is the current roster. A template naming someone who has left
+ * is held rather than posted: it would put a share on a person who can no
+ * longer see or settle it.
+ */
+export function templateProblem(template, memberIds, categorySplits = []) {
+  const roster = memberIds instanceof Set ? memberIds : new Set(memberIds ?? []);
+  if (!cadenceFor(template?.cadence) || !parseIsoDate(template?.next_due_date)) {
+    return 'This repeating expense has an unreadable schedule. Edit it to fix it.';
+  }
+  if (!roster.has(template.paid_by)) return 'The person who pays this is no longer a member. Edit it to choose someone else.';
+  const ids = templateMembers(template);
+  if (ids.some(id => !roster.has(id))) return 'Someone in this split is no longer a member. Edit it to update the split.';
+  if (!occurrenceSplits(template, categorySplits)) return 'This split no longer adds up. Edit it to fix it.';
+  return null;
+}
+
+/**
+ * The one transaction that posts an occurrence.
+ *
+ * The template's UPDATE goes first and carries the guard: it moves
+ * next_due_date on only from the date being posted, and only while the row
+ * is still the version this page read (`updated_at`). Two adults opening the
+ * app together both try to post the same date; one UPDATE matches, the
+ * other changes nothing, and its unmet `requireChanges` rolls its whole batch
+ * back, the expense and splits with it. The stamp also refuses a page holding
+ * a template someone has since edited, so it never posts the old amount,
+ * payer or split. The UNIQUE index on (recurring_id, occurrence_date) is the
+ * backstop under both. The hub's reminder cron writes only last_reminded_at,
+ * so it never moves the stamp.
+ *
+ * `plan` is null when this date is already posted (the template was moved back
+ * onto it by an edit): the template advances and nothing is inserted.
+ */
+export function occurrenceStatements(template, occurrence, plan, { expenseId, splitIds = [], now }) {
+  const advanced = { ...template, next_due_date: occurrence.next };
+  const { remind, remind_to } = reminderColumns(advanced);
+  const statements = [{
+    sql: 'UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1',
+    params: [occurrence.next, remind, remind_to, now, template.id, occurrence.date, template.updated_at],
+    requireChanges: true,
+  }];
+  if (!plan) return statements;
+  statements.push({
+    sql: 'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    params: [expenseId, template.paid_by, template.amount_cents, template.description, template.category,
+      occurrence.date, plan.source, now, null, template.id, occurrence.date],
+  });
+  if (plan.splits.length > 0) {
+    statements.push({
+      sql: `INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES ${plan.splits.map(() => '(?,?,?,?)').join(',')}`,
+      params: plan.splits.flatMap((s, i) => [splitIds[i], expenseId, s.member_id, s.amount_cents]),
+    });
+  }
+  return statements;
+}
+
+/** "Every month · next Nov 1" style summary for a template card. */
+export function scheduleLabel(template) {
+  const cadence = cadenceFor(template?.cadence);
+  if (!cadence) return 'Unreadable schedule';
+  if (Number(template.active) !== 1) return `${cadence.every} · paused`;
+  if (templateEnded(template)) return `${cadence.every} · ended ${fmtDate(template.end_date)}`;
+  return `${cadence.every} · next ${fmtDate(template.next_due_date)}`;
+}
+
+/** The cadence an edit form opens on. A stored value this app does not know
+ *  (a hand-written row) becomes Monthly, which the form then shows and saves,
+ *  rather than being written back unchanged behind a dropdown that says
+ *  something else. */
+export function editableCadence(cadence) {
+  return cadenceFor(cadence) ? cadence : 'monthly';
+}
+
+/**
+ * The anchor day a saved template keeps. An edit that leaves the due date as
+ * the form showed it keeps the stored anchor: that date may be clamped to a
+ * short month (rent anchored on the 31st showing 30 April), and reading the
+ * anchor back off it would move every later occurrence to the 30th for good.
+ * A new template, or a date the member changed, anchors on the date's own day.
+ * So does any move to or from Weekly: a weekly template's stored anchor is the
+ * day of its first date, which says nothing about a month. Monthly and yearly
+ * share a day-of-month anchor, so switching between them keeps it.
+ */
+export function anchorForSave(editing, date, cadence) {
+  const parsed = parseIsoDate(date);
+  if (!parsed) return null;
+  const kept = Number(editing?.anchor_day);
+  const sameSchedule = editing && date === editing.next_due_date
+    && editing.cadence !== 'weekly' && cadence !== 'weekly';
+  if (sameSchedule && Number.isInteger(kept) && kept >= 1 && kept <= 31) return kept;
+  return parsed.d;
+}
+
+/** The earliest due date the form accepts: one year before `today`. A
+ *  first date in the past backfills every occurrence since, so a mistyped
+ *  year (2006 for 2026) would otherwise add a thousand weekly expenses. */
+export function earliestDueDate(today) {
+  const p = parseIsoDate(today);
+  if (!p) return null;
+  return isoDate(p.y - 1, p.m, Math.min(p.d, daysInMonth(p.y - 1, p.m)));
+}
+
+/**
+ * Why the repeating form's dates cannot be saved, in words for the form, or
+ * null. `today` (household-local) bounds how far back a due date may reach.
+ * `stored` is the template being edited, as the form knows it is stored:
+ *  - kept exactly as it is, a schedule that cannot post (paused, or ended) is
+ *    never refused: fixing the description of an ended template must not
+ *    force reviving it.
+ *  - a PAUSED template may keep a due date older than the bound: it posts
+ *    nothing until resumed, and resuming skips the gap.
+ * Anything else that reaches back further than a year is refused: a mistyped
+ * year, or an ended template extended from an old date, would backfill every
+ * occurrence since.
+ */
+export function scheduleFormError(start, end, today = null, stored = null) {
+  if (!parseIsoDate(start)) return 'Choose the date it is due.';
+  if (end && !parseIsoDate(end)) return 'Choose a real end date, or clear it.';
+  const paused = stored && Number(stored.active) !== 1;
+  const keepsSchedule = stored && start === stored.next_due_date && (end || '') === (stored.end_date || '');
+  if (keepsSchedule && (paused || templateEnded(stored))) return null;
+  const earliest = earliestDueDate(today);
+  if (earliest && start < earliest && !(paused && start === stored.next_due_date)) {
+    return 'The due date is more than a year ago. Choose a later one, or add older expenses one at a time.';
+  }
+  if (end && end < start) return 'The end date is before the due date. Move it later or clear it.';
+  return null;
+}
+
+/** A guarded write that matched nothing: an unmet `requireChanges` answers 409
+ *  ("stale state"). Someone else moved the row first. */
+export function isStaleConflict(e) {
+  return e?.status === 409 || /stale state/i.test(String(e?.message ?? ''));
+}
+
+/** A UNIQUE constraint refused the write: the row it would add is already there. */
+export function isDuplicate(e) {
+  return e?.code === 'UNIQUE_CONSTRAINT' || /UNIQUE constraint failed/i.test(String(e?.message ?? ''));
+}
+
+/** api/db's cap on statements in one batch (MAX_APP_DB_BATCH_STATEMENTS in
+ *  hub-contract). */
+export const MAX_BATCH_STATEMENTS = 25;
+
+/** Occurrences chained into one transaction. Each takes at most three
+ *  statements (advance, expense, splits), so eight fit under the cap. */
+export const OCCURRENCES_PER_BATCH = Math.floor(MAX_BATCH_STATEMENTS / 3);
+
+/**
+ * A template's due occurrences as transactions of up to OCCURRENCES_PER_BATCH
+ * each, so a backlog costs one round trip per eight rather than one per
+ * occurrence. The guards chain: each UPDATE moves next_due_date on only from
+ * the value and stamp the previous one set, so if another adult posted or
+ * edited any of these first, a guard misses and the whole batch rolls back.
+ *
+ * `isPosted(date)` says the ledger already holds that date (an edit moved the
+ * template back onto it); the template then advances past it with no copy.
+ * Each batch lists the expenses it adds as `items`.
+ */
+export function postingBatches(template, occurrences, plan, { isPosted, newId, now }) {
+  const batches = [];
+  let current = template;
+  for (let i = 0; i < occurrences.length; i += OCCURRENCES_PER_BATCH) {
+    const statements = [];
+    const items = [];
+    for (const occurrence of occurrences.slice(i, i + OCCURRENCES_PER_BATCH)) {
+      const already = isPosted(occurrence.date);
+      const expenseId = newId();
+      statements.push(...occurrenceStatements(current, occurrence, already ? null : plan, {
+        expenseId, splitIds: plan.splits.map(() => newId()), now,
+      }));
+      if (!already) items.push({ date: occurrence.date, expenseId });
+      // The next step guards on what this one wrote.
+      current = { ...current, next_due_date: occurrence.next, updated_at: now };
+    }
+    batches.push({ statements, items, next_due_date: current.next_due_date });
+  }
+  return batches;
+}
+
+/**
+ * The write that brings a template's reminder columns in line with whether it
+ * can post. A HELD template (templateProblem: its payer or a split member
+ * left, or its split no longer adds up) will not post until something changes,
+ * so it must not keep emailing "due in three days" or sit on the household
+ * calendar. A hold can also clear without an edit (a member rejoins, a
+ * category rule is fixed), and then its reminders come back. Null when the
+ * columns already match. remind_scope, the household's choice, is never
+ * touched.
+ *
+ * Guarded on the stamp (a row edited since changes nothing), but it does NOT
+ * move it: updated_at versions the terms
+ * and the schedule, and these two columns are derived from them. Bumping it
+ * would refuse every other adult's open edit form as "changed by someone else"
+ * whenever a page load flipped a hold, though no term changed.
+ */
+export function reminderSyncStatement(template, held) {
+  const want = reminderColumns(template, held);
+  if (Number(template?.remind) === want.remind && template?.remind_to === want.remind_to) return null;
+  // No requireChanges: each sync is best-effort and sent beside others, so a
+  // stale guard just changes nothing rather than rolling the rest back.
+  return {
+    sql: 'UPDATE app_expense_splitter__recurring_expenses SET remind = ?, remind_to = ? WHERE id = ? AND updated_at = ?',
+    params: [want.remind, want.remind_to, template.id, template.updated_at],
+  };
+}
+
+/** "id|date" keys of the occurrences already in the ledger, built once per
+ *  posting run so each due date is a lookup rather than a scan. */
+export function postedOccurrenceKeys(expenses) {
+  const keys = new Set();
+  for (const e of expenses ?? []) {
+    if (e?.recurring_id && e.occurrence_date) keys.add(`${e.recurring_id}|${e.occurrence_date}`);
+  }
+  return keys;
+}
+
+/** The columns a member sets on the form. Two template rows with the same
+ *  terms post the same expenses on the same dates. */
+const TEMPLATE_TERMS = [
+  'description', 'amount_cents', 'category', 'paid_by', 'split_type', 'split_members',
+  'split_weights', 'cadence', 'anchor_day', 'next_due_date', 'end_date', 'remind_scope',
+];
+
+/**
+ * Whether a stored template holds exactly the terms a save sent. A retried
+ * save reuses its pinned stamp, so a matching stamp alone proves only that
+ * SOME try of this form landed; if the member changed a field between tries,
+ * the row holds the earlier values, and the page must not show the later ones
+ * as saved.
+ */
+export function sameTemplateTerms(stored, sent) {
+  if (!stored || !sent) return false;
+  return TEMPLATE_TERMS.every(k => String(stored[k] ?? '') === String(sent[k] ?? ''));
 }

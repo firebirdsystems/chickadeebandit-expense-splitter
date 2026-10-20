@@ -867,6 +867,1494 @@
           }
         }
       ]
+    },
+    {
+      "name": "a repeating expense posts each due date once: a second adult posting the same date changes nothing and adds no expense, and a child can do neither",
+      "members": {
+        "ana": "adult",
+        "sam": "adult",
+        "kid": "child"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "rent",
+            "Rent",
+            200000,
+            "household",
+            "{{ana}}",
+            "equal",
+            "[\"{{ana}}\",\"{{sam}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "payer",
+            1,
+            "payer",
+            "{{ana}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-02T01:00:00Z",
+                "rent",
+                "2026-10-01",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-oct-ana",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-02T01:00:00Z",
+                null,
+                "rent",
+                "2026-10-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-oct-ana-s1",
+                "ex-oct-ana",
+                "{{ana}}",
+                100000,
+                "ex-oct-ana-s2",
+                "ex-oct-ana",
+                "{{sam}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1,
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "action": "batch",
+          "as": "sam",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-02T02:00:00Z",
+                "rent",
+                "2026-10-01",
+                "2026-10-02T01:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-oct-sam",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-02T02:00:00Z",
+                null,
+                "rent",
+                "2026-10-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-oct-sam-s1",
+                "ex-oct-sam",
+                "{{ana}}",
+                100000,
+                "ex-oct-sam-s2",
+                "ex-oct-sam",
+                "{{sam}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 409
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT id, occurrence_date FROM app_expense_splitter__expenses WHERE recurring_id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "id": "ex-oct-ana",
+                "occurrence_date": "2026-10-01"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT id FROM app_expense_splitter__expense_splits WHERE expense_id = ?",
+          "params": [
+            "ex-oct-sam"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 0
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT next_due_date FROM app_expense_splitter__recurring_expenses WHERE id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "next_due_date": "2026-11-01"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "ex-oct-dup",
+            "{{ana}}",
+            200000,
+            "Rent",
+            "household",
+            "2026-10-01",
+            "equal",
+            "2026-10-02T04:00:00Z",
+            null,
+            "rent",
+            "2026-10-01"
+          ],
+          "expect": {
+            "status": 400
+          }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "kid-rent",
+            "Rent",
+            200000,
+            "household",
+            "{{ana}}",
+            "equal",
+            "[\"{{ana}}\",\"{{sam}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "payer",
+            1,
+            "payer",
+            "{{kid}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "batch",
+          "as": "kid",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-02T03:00:00Z",
+                "rent",
+                "2026-10-01",
+                "2026-10-02T01:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-oct-kid",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-02T03:00:00Z",
+                null,
+                "rent",
+                "2026-10-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-oct-kid-s1",
+                "ex-oct-kid",
+                "{{ana}}",
+                100000,
+                "ex-oct-kid-s2",
+                "ex-oct-kid",
+                "{{sam}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "SELECT id, description FROM app_expense_splitter__recurring_expenses",
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "id": "rent",
+                "description": "Rent"
+              }
+            ]
+          },
+          "params": []
+        }
+      ]
+    },
+    {
+      "name": "in a shared space a repeating expense one co-parent set up is posted by the other, while a granted guest can read it but neither set one up nor post it",
+      "context": "shared_space",
+      "members": {
+        "steward": "admin",
+        "coparent": "adult",
+        "sitter": "guest"
+      },
+      "granted": [
+        "sitter"
+      ],
+      "steps": [
+        {
+          "action": "db",
+          "as": "coparent",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "daycare",
+            "Rent",
+            200000,
+            "household",
+            "{{coparent}}",
+            "equal",
+            "[\"{{coparent}}\",\"{{steward}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "payer",
+            1,
+            "payer",
+            "{{coparent}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "batch",
+          "as": "sitter",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-02T02:00:00Z",
+                "daycare",
+                "2026-10-01",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-daycare-sit",
+                "{{coparent}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-02T02:00:00Z",
+                null,
+                "daycare",
+                "2026-10-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-daycare-sit-s1",
+                "ex-daycare-sit",
+                "{{coparent}}",
+                100000,
+                "ex-daycare-sit-s2",
+                "ex-daycare-sit",
+                "{{steward}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "batch",
+          "as": "steward",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-02T01:00:00Z",
+                "daycare",
+                "2026-10-01",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-daycare-oct",
+                "{{coparent}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-02T01:00:00Z",
+                null,
+                "daycare",
+                "2026-10-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-daycare-oct-s1",
+                "ex-daycare-oct",
+                "{{coparent}}",
+                100000,
+                "ex-daycare-oct-s2",
+                "ex-daycare-oct",
+                "{{steward}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1,
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "coparent",
+          "sql": "SELECT id, paid_by FROM app_expense_splitter__expenses WHERE recurring_id = ?",
+          "params": [
+            "daycare"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "id": "ex-daycare-oct",
+                "paid_by": "scn-coparent"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "sitter",
+          "sql": "SELECT id FROM app_expense_splitter__recurring_expenses",
+          "expect": {
+            "status": 200,
+            "rowCount": 1
+          },
+          "params": []
+        },
+        {
+          "action": "db",
+          "as": "sitter",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "sitter-rent",
+            "Rent",
+            200000,
+            "household",
+            "{{coparent}}",
+            "equal",
+            "[\"{{coparent}}\",\"{{steward}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "payer",
+            1,
+            "payer",
+            "{{sitter}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 403
+          }
+        }
+      ]
+    },
+    {
+      "name": "an edit or a pause made on a stale copy of a repeating expense changes nothing, so it cannot undo what another adult just saved",
+      "members": {
+        "ana": "adult",
+        "sam": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "rent",
+            "Rent",
+            200000,
+            "household",
+            "{{ana}}",
+            "equal",
+            "[\"{{ana}}\",\"{{sam}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "payer",
+            1,
+            "payer",
+            "{{ana}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET description = ?, amount_cents = ?, updated_at = ? WHERE id = ? AND updated_at = ?",
+              "params": [
+                "Rent and parking",
+                210000,
+                "2026-09-21T10:00:00Z",
+                "rent",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1
+            ]
+          }
+        },
+        {
+          "action": "batch",
+          "as": "sam",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET description = ?, amount_cents = ?, updated_at = ? WHERE id = ? AND updated_at = ?",
+              "params": [
+                "Rent",
+                200000,
+                "2026-09-21T11:00:00Z",
+                "rent",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            }
+          ],
+          "expect": {
+            "status": 409
+          }
+        },
+        {
+          "action": "batch",
+          "as": "sam",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET active = ?, next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND updated_at = ?",
+              "params": [
+                0,
+                "2026-10-01",
+                0,
+                "payer",
+                "2026-09-21T12:00:00Z",
+                "rent",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            }
+          ],
+          "expect": {
+            "status": 409
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT description, amount_cents, active FROM app_expense_splitter__recurring_expenses WHERE id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "description": "Rent and parking",
+                "amount_cents": 210000,
+                "active": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a paused repeating expense cannot be posted, and stopping one keeps every expense it already added",
+      "members": {
+        "ana": "adult",
+        "sam": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "rent",
+            "Rent",
+            200000,
+            "household",
+            "{{ana}}",
+            "equal",
+            "[\"{{ana}}\",\"{{sam}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "payer",
+            1,
+            "payer",
+            "{{ana}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-02T09:00:00Z",
+                "rent",
+                "2026-10-01",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-oct",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-02T09:00:00Z",
+                null,
+                "rent",
+                "2026-10-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-oct-s1",
+                "ex-oct",
+                "{{ana}}",
+                100000,
+                "ex-oct-s2",
+                "ex-oct",
+                "{{sam}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1,
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET active = ?, next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND updated_at = ?",
+              "params": [
+                0,
+                "2026-11-01",
+                0,
+                "payer",
+                "2026-10-05T09:00:00Z",
+                "rent",
+                "2026-10-02T09:00:00Z"
+              ],
+              "requireChanges": true
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1
+            ]
+          }
+        },
+        {
+          "action": "batch",
+          "as": "sam",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-12-01",
+                1,
+                "payer",
+                "2026-11-02T09:00:00Z",
+                "rent",
+                "2026-11-01",
+                "2026-10-05T09:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-nov",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-11-01",
+                "equal",
+                "2026-11-02T09:00:00Z",
+                null,
+                "rent",
+                "2026-11-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-nov-s1",
+                "ex-nov",
+                "{{ana}}",
+                100000,
+                "ex-nov-s2",
+                "ex-nov",
+                "{{sam}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 409
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "DELETE FROM app_expense_splitter__recurring_expenses WHERE id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT id FROM app_expense_splitter__expenses WHERE recurring_id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "id": "ex-oct"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT id FROM app_expense_splitter__expense_splits WHERE expense_id = ?",
+          "params": [
+            "ex-oct"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "a backlog posts as one chained transaction, and a guard that misses part-way rolls every occurrence in it back",
+      "members": {
+        "ana": "adult",
+        "sam": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "rent",
+            "Rent",
+            200000,
+            "household",
+            "{{ana}}",
+            "equal",
+            "[\"{{ana}}\",\"{{sam}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-09-01",
+            null,
+            1,
+            "payer",
+            1,
+            "payer",
+            "{{ana}}",
+            "2026-08-20T10:00:00Z",
+            "2026-08-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "batch",
+          "as": "sam",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-10-01",
+                1,
+                "payer",
+                "2026-10-19T09:00:00Z",
+                "rent",
+                "2026-09-01",
+                "2026-08-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "bad-sep",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-09-01",
+                "equal",
+                "2026-10-19T09:00:00Z",
+                null,
+                "rent",
+                "2026-09-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "bad-sep-s1",
+                "bad-sep",
+                "{{ana}}",
+                100000,
+                "bad-sep-s2",
+                "bad-sep",
+                "{{sam}}",
+                100000
+              ]
+            },
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-19T09:00:00Z",
+                "rent",
+                "2026-10-15",
+                "2026-10-19T09:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "bad-oct",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-19T09:00:00Z",
+                null,
+                "rent",
+                "2026-10-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "bad-oct-s1",
+                "bad-oct",
+                "{{ana}}",
+                100000,
+                "bad-oct-s2",
+                "bad-oct",
+                "{{sam}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 409
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "SELECT id FROM app_expense_splitter__expenses WHERE recurring_id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 0
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "SELECT next_due_date FROM app_expense_splitter__recurring_expenses WHERE id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowsContain": [
+              {
+                "next_due_date": "2026-09-01"
+              }
+            ]
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-10-01",
+                1,
+                "payer",
+                "2026-10-19T09:00:00Z",
+                "rent",
+                "2026-09-01",
+                "2026-08-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-sep",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-09-01",
+                "equal",
+                "2026-10-19T09:00:00Z",
+                null,
+                "rent",
+                "2026-09-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-sep-s1",
+                "ex-sep",
+                "{{ana}}",
+                100000,
+                "ex-sep-s2",
+                "ex-sep",
+                "{{sam}}",
+                100000
+              ]
+            },
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-19T09:00:00Z",
+                "rent",
+                "2026-10-01",
+                "2026-10-19T09:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-oct",
+                "{{ana}}",
+                200000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-19T09:00:00Z",
+                null,
+                "rent",
+                "2026-10-01"
+              ]
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?,?,?,?),(?,?,?,?)",
+              "params": [
+                "ex-oct-s1",
+                "ex-oct",
+                "{{ana}}",
+                100000,
+                "ex-oct-s2",
+                "ex-oct",
+                "{{sam}}",
+                100000
+              ]
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1,
+              1,
+              2,
+              1,
+              1,
+              2
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT id FROM app_expense_splitter__expenses WHERE recurring_id = ? ORDER BY occurrence_date",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 2,
+            "rowsContain": [
+              {
+                "id": "ex-sep"
+              },
+              {
+                "id": "ex-oct"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT next_due_date FROM app_expense_splitter__recurring_expenses WHERE id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowsContain": [
+              {
+                "next_due_date": "2026-11-01"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a page holding a repeating expense another adult has since edited cannot post the old terms, even when the due date still matches",
+      "members": {
+        "ana": "adult",
+        "sam": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "rent",
+            "Rent",
+            150000,
+            "household",
+            "{{ana}}",
+            "equal",
+            "[\"{{ana}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "household",
+            1,
+            "household",
+            "{{ana}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "batch",
+          "as": "sam",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET description = ?, amount_cents = ?, updated_at = ? WHERE id = ? AND updated_at = ?",
+              "params": [
+                "Rent",
+                160000,
+                "2026-09-25T10:00:00Z",
+                "rent",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1
+            ]
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-02T09:00:00Z",
+                "rent",
+                "2026-10-01",
+                "2026-09-20T10:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-stale",
+                "{{ana}}",
+                150000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-02T09:00:00Z",
+                null,
+                "rent",
+                "2026-10-01"
+              ]
+            }
+          ],
+          "expect": {
+            "status": 409
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT id FROM app_expense_splitter__expenses WHERE recurring_id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 0
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET next_due_date = ?, remind = ?, remind_to = ?, updated_at = ? WHERE id = ? AND next_due_date = ? AND updated_at = ? AND active = 1",
+              "params": [
+                "2026-11-01",
+                1,
+                "payer",
+                "2026-10-02T09:01:00Z",
+                "rent",
+                "2026-10-01",
+                "2026-09-25T10:00:00Z"
+              ],
+              "requireChanges": true
+            },
+            {
+              "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id, recurring_id, occurrence_date) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "params": [
+                "ex-fresh",
+                "{{ana}}",
+                160000,
+                "Rent",
+                "household",
+                "2026-10-01",
+                "equal",
+                "2026-10-02T09:01:00Z",
+                null,
+                "rent",
+                "2026-10-01"
+              ]
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT amount_cents FROM app_expense_splitter__expenses WHERE recurring_id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "amount_cents": 160000
+              }
+            ]
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET remind = ?, remind_to = ? WHERE id = ? AND updated_at = ?",
+              "params": [
+                0,
+                "payer",
+                "rent",
+                "2026-10-02T09:01:00Z"
+              ],
+              "requireChanges": true
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              1
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "sam",
+          "sql": "SELECT remind, remind_to, remind_scope FROM app_expense_splitter__recurring_expenses WHERE id = ?",
+          "params": [
+            "rent"
+          ],
+          "expect": {
+            "status": 200,
+            "rowsContain": [
+              {
+                "remind": 0,
+                "remind_to": "payer",
+                "remind_scope": "household"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "reminder syncs sent together apply independently, and none moves the template stamp other adults' edit forms hold",
+      "members": {
+        "ana": "adult"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "a",
+            "Rent",
+            200000,
+            "household",
+            "{{ana}}",
+            "equal",
+            "[\"{{ana}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "household",
+            1,
+            "household",
+            "{{ana}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "INSERT INTO app_expense_splitter__recurring_expenses (id, description, amount_cents, category, paid_by, split_type, split_members, split_weights, cadence, anchor_day, next_due_date, end_date, active, remind_scope, remind, remind_to, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+          "params": [
+            "b",
+            "Rent",
+            200000,
+            "household",
+            "{{ana}}",
+            "equal",
+            "[\"{{ana}}\"]",
+            "{}",
+            "monthly",
+            1,
+            "2026-10-01",
+            null,
+            1,
+            "household",
+            1,
+            "household",
+            "{{ana}}",
+            "2026-09-20T10:00:00Z",
+            "2026-09-20T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "batch",
+          "as": "ana",
+          "statements": [
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET remind = ?, remind_to = ? WHERE id = ? AND updated_at = ?",
+              "params": [
+                0,
+                "payer",
+                "a",
+                "2026-01-01T00:00:00Z"
+              ]
+            },
+            {
+              "sql": "UPDATE app_expense_splitter__recurring_expenses SET remind = ?, remind_to = ? WHERE id = ? AND updated_at = ?",
+              "params": [
+                0,
+                "payer",
+                "b",
+                "2026-09-20T10:00:00Z"
+              ]
+            }
+          ],
+          "expect": {
+            "status": 200,
+            "changed": [
+              0,
+              1
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "SELECT id, remind FROM app_expense_splitter__recurring_expenses ORDER BY id",
+          "expect": {
+            "status": 200,
+            "rowCount": 2,
+            "rowsContain": [
+              {
+                "id": "a",
+                "remind": 1
+              },
+              {
+                "id": "b",
+                "remind": 0
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "SELECT id, updated_at FROM app_expense_splitter__recurring_expenses WHERE id = ?",
+          "params": [
+            "b"
+          ],
+          "expect": {
+            "status": 200,
+            "rowsContain": [
+              {
+                "id": "b",
+                "updated_at": "2026-09-20T10:00:00Z"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
