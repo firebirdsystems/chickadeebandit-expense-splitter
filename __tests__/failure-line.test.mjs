@@ -33,3 +33,10 @@ describe("failureLine", () => {
     expect(failureLine(err({ status: 500 }, "D1_ERROR: boom"), words)).not.toMatch(/D1_ERROR/);
   });
 });
+
+describe("failureLine – a 404 the re-read found", () => {
+  it("says changed, not removed, when the caller found the row", () => {
+    expect(failureLine(err({ status: 404 }), { ...words, found: true }))
+      .toBe("This item was changed by someone else — check it first.");
+  });
+});

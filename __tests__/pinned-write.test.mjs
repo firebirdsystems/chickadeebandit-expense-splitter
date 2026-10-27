@@ -47,3 +47,16 @@ describe("pinnedWriteOutcome", () => {
     expect(pinnedWriteOutcome({ conflict: true, reread: true, landed: false, found: false, parentFound: false })).toBe("parent-removed");
   });
 });
+
+describe("outcomeUnknown / pinnedWriteOutcome – edge inputs", () => {
+  it("treats a missing error as unknown", () => {
+    expect(outcomeUnknown(undefined)).toBe(true);
+  });
+  it("reads back a duplicate even when it arrives as a 409", () => {
+    expect(outcomeUnknown(err({ status: 409, code: "UNIQUE_CONSTRAINT" }))).toBe(true);
+  });
+  it("is unknown when a conflict's re-read failed, whatever found says", () => {
+    expect(pinnedWriteOutcome({ conflict: true, reread: false, landed: false, found: true })).toBe("unknown");
+    expect(pinnedWriteOutcome({ conflict: true, reread: false, landed: false, found: false })).toBe("unknown");
+  });
+});

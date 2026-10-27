@@ -1035,3 +1035,184 @@ describe('a percent set that is not 100% has no per-member answer', () => {
     expect(validateCategoryPercents([{ percent_bp: 100 }, { percent_bp: 0 }])).toBe(false);
   });
 });
+
+// ── Exact transfer lists and boundaries (mutation-testing gaps) ──────────────
+
+describe('simplifyDebts – exact transfers', () => {
+  it('pays the largest creditor first when one debtor owes many', () => {
+    expect(simplifyDebts({ a: 100, b: 300, x: -400 })).toEqual([
+      { from_id: 'x', to_id: 'b', amount_cents: 300 },
+      { from_id: 'x', to_id: 'a', amount_cents: 100 },
+    ]);
+  });
+
+  it('takes the largest debtor first when many owe one', () => {
+    expect(simplifyDebts({ y: -100, z: -300, c: 400 })).toEqual([
+      { from_id: 'z', to_id: 'c', amount_cents: 300 },
+      { from_id: 'y', to_id: 'c', amount_cents: 100 },
+    ]);
+  });
+
+  it('matches many debtors to many creditors greedily, largest against largest', () => {
+    expect(simplifyDebts({ x: -100, b: 200, y: -600, a: 500 })).toEqual([
+      { from_id: 'y', to_id: 'a', amount_cents: 500 },
+      { from_id: 'y', to_id: 'b', amount_cents: 100 },
+      { from_id: 'x', to_id: 'b', amount_cents: 100 },
+    ]);
+  });
+
+  it('leaves zero balances out and only moves money between the others', () => {
+    expect(simplifyDebts({ z: 0, a: 250, b: -250, w: 0 })).toEqual([
+      { from_id: 'b', to_id: 'a', amount_cents: 250 },
+    ]);
+  });
+
+  it('stops cleanly when rounding leaves the debtors owing a cent more than the creditors are owed', () => {
+    // 100.4 rounds to 100, -100.6 to -101: the creditors run out first.
+    expect(simplifyDebts({ a: 100.4, b: -100.6 })).toEqual([{ from_id: 'b', to_id: 'a', amount_cents: 100 }]);
+  });
+
+  it('stops cleanly when rounding leaves the creditors owed a cent more than the debtors owe', () => {
+    expect(simplifyDebts({ a: 100.6, b: -100.4 })).toEqual([{ from_id: 'b', to_id: 'a', amount_cents: 100 }]);
+  });
+
+  it('settles nothing for balances that round to zero', () => {
+    expect(simplifyDebts({ a: 0.4, b: -0.4 })).toEqual([]);
+  });
+});
+
+describe('computeBalances – an expense with no splits', () => {
+  it('records the payer at zero and nobody else', () => {
+    expect(computeBalances([{ id: 'e1', paid_by: 'a', amount_cents: 500 }], [], [])).toEqual({ a: 0 });
+  });
+});
+
+describe('splitPercentsForCategory – a rule naming someone outside the split', () => {
+  it('refuses a rule with an extra member even when the others still total 100%', () => {
+    const rows = [
+      { category: 'food', member_id: 'ana', percent_bp: 6000 },
+      { category: 'food', member_id: 'sam', percent_bp: 4000 },
+      { category: 'food', member_id: 'kim', percent_bp: 0 },
+    ];
+    expect(splitPercentsForCategory(rows, 'food', ['ana', 'sam'])).toBeNull();
+  });
+});
+
+describe('apportion helpers – missing input', () => {
+  it('returns no splits for null or empty weights', () => {
+    expect(apportionByWeight(100, null, 3)).toEqual([]);
+    expect(apportionByWeight(100, [], 3)).toEqual([]);
+    expect(apportionByPercent(100, null)).toEqual([]);
+    expect(apportionByShares(100, null)).toEqual([]);
+  });
+});
+
+describe('validateReimbursement – the upper bound', () => {
+  it('accepts exactly $1,000,000 and refuses a cent more', () => {
+    const base = { payer_id: 'b', requester_id: 'a' };
+    expect(validateReimbursement({ ...base, amount_cents: 100_000_000 })).toEqual({ ok: true });
+    expect(validateReimbursement({ ...base, amount_cents: 100_000_001 }).ok).toBe(false);
+  });
+});
+
+describe('fmtSplit / fmtDate – exact text', () => {
+  it('shows two decimals for a part-dollar amount and $0 for a missing one', () => {
+    expect(fmtSplit(150)).toBe('$1.50');
+    expect(fmtSplit(-150)).toBe('-$1.50');
+    expect(fmtSplit(undefined)).toBe('$0');
+  });
+  it('adds the year to a date from another year', () => {
+    expect(fmtDate('2001-06-08')).toBe('Jun 8, 2001');
+  });
+});
+
+describe('categories', () => {
+  it('lists every category id in form order', () => {
+    expect(CATEGORIES.map(c => c.id)).toEqual(
+      ['food', 'transport', 'utilities', 'household', 'entertainment', 'shopping', 'travel', 'health', 'other']);
+    for (const c of CATEGORIES) expect(categoryFor(c.id)).toBe(c);
+  });
+});
+
+describe('monthKey / monthLabel / expenseMonths – malformed dates', () => {
+  it('needs a four-digit year and two-digit month at the start', () => {
+    expect(monthKey('x2026-09-01')).toBeNull();
+    expect(monthKey('2026-9-01')).toBeNull();
+  });
+  it('labels a missing key as empty', () => {
+    expect(monthLabel(undefined)).toBe('');
+  });
+  it('skips undated expenses', () => {
+    expect(expenseMonths([{ date: '2026-09-01' }, { date: null }, { date: 'bad' }])).toEqual(['2026-09']);
+  });
+});
+
+describe('rangeForPeriod – exact bounds and malformed periods', () => {
+  it('gives exact month and year bounds', () => {
+    expect(rangeForPeriod('month:2026-02')).toEqual({ from: '2026-02-01', to: '2026-02-32' });
+    expect(rangeForPeriod('year:2026')).toEqual({ from: '2026-01-01', to: '2026-12-32' });
+  });
+  it('opens both ends when the value does not fit the kind', () => {
+    const open = { from: null, to: null };
+    expect(rangeForPeriod('year:2026-09')).toEqual(open);
+    expect(rangeForPeriod('month:2026')).toEqual(open);
+    expect(rangeForPeriod('week:2026')).toEqual(open);
+    expect(rangeForPeriod('month:x2026-09')).toEqual(open);
+    expect(rangeForPeriod('month:2026-091')).toEqual(open);
+    expect(rangeForPeriod('year:x2026')).toEqual(open);
+    expect(rangeForPeriod('year:20261')).toEqual(open);
+  });
+});
+
+describe('expensesInRange', () => {
+  const rows = [
+    { id: 'before', date: '2026-08-31' },
+    { id: 'first', date: '2026-09-01' },
+    { id: 'last', date: '2026-09-30' },
+    { id: 'after', date: '2026-10-01' },
+    { id: 'undated', date: null },
+  ];
+  const ids = (range) => expensesInRange(rows, range).map(e => e.id);
+
+  it('includes both bounds', () => {
+    expect(ids({ from: '2026-09-01', to: '2026-09-30' })).toEqual(['first', 'last']);
+  });
+  it('treats a null bound as open', () => {
+    expect(ids({ from: '2026-09-30' })).toEqual(['last', 'after']);
+    expect(ids({ to: '2026-09-01' })).toEqual(['before', 'first']);
+  });
+  it('keeps an undated expense only when the range is all time', () => {
+    expect(ids({})).toEqual(['before', 'first', 'last', 'after', 'undated']);
+    expect(ids()).toEqual(['before', 'first', 'last', 'after', 'undated']);
+  });
+  it('is empty for no expenses', () => {
+    expect(expensesInRange(null)).toEqual([]);
+  });
+});
+
+describe('summarize – ordering', () => {
+  it('ranks categories by spend and members by what they paid, whatever order they were entered', () => {
+    const expenses = [
+      { id: 'e1', paid_by: 'b', amount_cents: 1000, category: 'transport', date: '2026-09-01' },
+      { id: 'e2', paid_by: 'a', amount_cents: 5000, category: 'food', date: '2026-09-02' },
+      { id: 'e3', paid_by: 'c', amount_cents: 3000, category: 'travel', date: '2026-09-03' },
+    ];
+    const s = summarize(expenses, [], {});
+    expect(s.byCategory.map(c => c.category)).toEqual(['food', 'travel', 'transport']);
+    expect(s.byMember).toEqual([
+      { member_id: 'a', paid_cents: 5000, share_cents: 0, net_cents: 5000 },
+      { member_id: 'c', paid_cents: 3000, share_cents: 0, net_cents: 3000 },
+      { member_id: 'b', paid_cents: 1000, share_cents: 0, net_cents: 1000 },
+    ]);
+  });
+});
+
+describe('normalizeHandle / validateHandle – sigils', () => {
+  it('strips every leading sigil and only leading ones', () => {
+    expect(normalizeHandle('@@sam')).toBe('sam');
+    expect(normalizeHandle('sam@x.com')).toBe('sam@x.com');
+  });
+  it('asks for a username when only a sigil was typed', () => {
+    expect(validateHandle('venmo', '@')).toEqual({ ok: false, error: 'Enter your username.' });
+  });
+});

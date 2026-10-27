@@ -42,6 +42,7 @@ import {
   MAX_BATCH_STATEMENTS,
   OCCURRENCES_PER_BATCH,
   MAX_POSTS_PER_RUN,
+  REMIND_SCOPES,
 } from '../src/logic.js';
 
 const FC = {
@@ -603,5 +604,213 @@ describe('schedule properties', () => {
         expect(plan.splits.every(x => x.amount_cents >= 0)).toBe(true);
       }
     }), FC);
+  });
+});
+
+// ── Exact values at the edges (mutation-testing gaps) ───────────────────────
+
+describe('occurrenceSplits – exact splits and refusals', () => {
+  it('splits equally to the cent, the earlier member taking the odd penny', () => {
+    expect(occurrenceSplits(rent({ amount_cents: 1001 }))).toEqual({
+      splits: [{ member_id: 'ana', amount_cents: 501 }, { member_id: 'sam', amount_cents: 500 }],
+      source: 'equal',
+    });
+  });
+
+  it('posts custom amounts as stored', () => {
+    expect(occurrenceSplits(rent({ split_type: 'custom', split_weights: JSON.stringify({ ana: 150000, sam: 50000 }) })))
+      .toEqual({
+        splits: [{ member_id: 'ana', amount_cents: 150000 }, { member_id: 'sam', amount_cents: 50000 }],
+        source: 'custom',
+      });
+  });
+
+  it('splits by percent', () => {
+    expect(occurrenceSplits(rent({ split_type: 'percent', split_weights: JSON.stringify({ ana: 7500, sam: 2500 }) })))
+      .toEqual({
+        splits: [{ member_id: 'ana', amount_cents: 150000 }, { member_id: 'sam', amount_cents: 50000 }],
+        source: 'percent',
+      });
+  });
+
+  it('accepts a zero share: one member can carry the whole amount', () => {
+    expect(occurrenceSplits(rent({ split_type: 'custom', split_weights: JSON.stringify({ ana: 200000, sam: 0 }) })).splits)
+      .toEqual([{ member_id: 'ana', amount_cents: 200000 }, { member_id: 'sam', amount_cents: 0 }]);
+  });
+
+  it('refuses a bad amount', () => {
+    expect(occurrenceSplits(rent({ amount_cents: -200000 }))).toBeNull();
+    expect(occurrenceSplits(rent({ amount_cents: 100.5 }))).toBeNull();
+    expect(occurrenceSplits(rent({ amount_cents: 'lots' }))).toBeNull();
+  });
+
+  it('refuses a custom split that totals the amount through a negative share', () => {
+    const t = rent({ split_type: 'custom', split_weights: JSON.stringify({ ana: 250000, sam: -50000 }) });
+    expect(occurrenceSplits(t)).toBeNull();
+  });
+
+  it('refuses a custom split that totals the amount in fractions of a cent', () => {
+    const t = rent({ split_type: 'custom', split_weights: JSON.stringify({ ana: 100000.5, sam: 99999.5 }) });
+    expect(occurrenceSplits(t)).toBeNull();
+  });
+
+  it('is null for no template', () => {
+    expect(occurrenceSplits(null)).toBeNull();
+    expect(templateMembers(null)).toEqual([]);
+  });
+});
+
+describe('templateEnded – boundaries', () => {
+  it('is not ended while the next date is on or before the end date', () => {
+    expect(templateEnded(rent({ end_date: '2026-12-01', next_due_date: '2026-09-01' }))).toBe(false);
+    expect(templateEnded(rent({ end_date: '2026-09-01', next_due_date: '2026-09-01' }))).toBe(false);
+    expect(templateEnded(rent({ end_date: '2026-08-31', next_due_date: '2026-09-01' }))).toBe(true);
+  });
+  it('is not ended with no end date, an empty one, or no template', () => {
+    expect(templateEnded(rent({ end_date: '' }))).toBe(false);
+    expect(templateEnded(null)).toBe(false);
+  });
+});
+
+describe('parseIsoDate – strictness', () => {
+  it('needs the whole string to be the date', () => {
+    expect(parseIsoDate('x2026-01-01')).toBeNull();
+    expect(parseIsoDate('2026-01-011')).toBeNull();
+    expect(parseIsoDate(['2026-01-01'])).toBeNull();
+  });
+  it('refuses a two-digit-era year that Date would move into the 1900s', () => {
+    expect(parseIsoDate('0050-01-01')).toBeNull();
+  });
+});
+
+describe('nextOccurrence – anchors and year end', () => {
+  it('ignores an anchor day past 31', () => {
+    expect(nextOccurrence('2026-01-15', 'monthly', 40)).toBe('2026-02-15');
+  });
+  it('steps November to December in the same year', () => {
+    expect(nextOccurrence('2026-11-10', 'monthly')).toBe('2026-12-10');
+  });
+});
+
+describe('dueOccurrences / resumeDate – a schedule that cannot step', () => {
+  it('posts nothing for an unknown cadence', () => {
+    expect(dueOccurrences(rent({ cadence: 'hourly' }), '2026-10-19')).toEqual([]);
+  });
+  it('leaves an unknown cadence where it is on resume', () => {
+    expect(resumeDate(rent({ cadence: 'hourly', next_due_date: '2026-06-01' }), '2026-10-19')).toBe('2026-06-01');
+  });
+  it('resumes nothing for no template, and leaves the date alone when today is unreadable', () => {
+    expect(resumeDate(null, '2026-10-19')).toBeNull();
+    expect(resumeDate(rent({ next_due_date: '2026-06-01' }), 'garbage')).toBe('2026-06-01');
+  });
+  it('stops after 1100 steps', () => {
+    // 1100 weeks after 2000-01-01, still short of today.
+    expect(resumeDate(rent({ cadence: 'weekly', next_due_date: '2000-01-01' }), '2030-01-01')).toBe('2021-01-30');
+  });
+});
+
+describe('reminderColumns / parseJsonField – missing input', () => {
+  it('switches reminders off for no template', () => {
+    expect(reminderColumns(null)).toEqual({ remind: 0, remind_to: 'payer' });
+  });
+  it('passes an already-parsed object through', () => {
+    const obj = { ana: 1 };
+    expect(parseJsonField(obj, null)).toBe(obj);
+  });
+  it('lists the reminder choices in form order', () => {
+    expect(REMIND_SCOPES.map(s => s.id)).toEqual(['payer', 'household', 'off']);
+  });
+});
+
+describe('templateProblem / scheduleLabel – unreadable templates', () => {
+  it('names an unreadable schedule for no template', () => {
+    expect(templateProblem(null, ['ana'])).toMatch(/unreadable schedule/);
+    expect(scheduleLabel(null)).toBe('Unreadable schedule');
+    expect(scheduleLabel(rent({ cadence: 'hourly' }))).toBe('Unreadable schedule');
+  });
+  it('labels a paused weekly template', () => {
+    expect(scheduleLabel(rent({ cadence: 'weekly', active: 0 }))).toBe('Every week · paused');
+  });
+});
+
+describe('occurrenceStatements – reminders and empty splits', () => {
+  const opts = { expenseId: 'exp-1', splitIds: [], now: '2026-10-19T12:00:00.000Z' };
+
+  it('writes the reminder columns of the template as it will stand after the step', () => {
+    const [update] = occurrenceStatements(rent({ remind_scope: 'household' }),
+      { date: '2026-09-01', next: '2026-10-01' }, null, opts);
+    expect(update.params.slice(0, 3)).toEqual(['2026-10-01', 1, 'household']);
+  });
+
+  it('adds no splits statement for a plan with no splits', () => {
+    const st = occurrenceStatements(rent(), { date: '2026-09-01', next: '2026-10-01' },
+      { splits: [], source: 'equal' }, opts);
+    expect(st).toHaveLength(2);
+  });
+});
+
+describe('anchorForSave – which anchor survives an edit', () => {
+  it('re-anchors on the date when switching to weekly', () => {
+    const editing = rent({ anchor_day: 31, next_due_date: '2026-04-30', cadence: 'monthly' });
+    expect(anchorForSave(editing, '2026-04-30', 'weekly')).toBe(30);
+    expect(anchorForSave(editing, '2026-04-30', 'yearly')).toBe(31);
+  });
+  it('keeps only a stored anchor between 1 and 31', () => {
+    const at = (anchor_day) => anchorForSave(rent({ anchor_day, next_due_date: '2026-09-15' }), '2026-09-15', 'monthly');
+    expect(at(1)).toBe(1);
+    expect(at(31)).toBe(31);
+    expect(at(0)).toBe(15);
+    expect(at(40)).toBe(15);
+  });
+});
+
+describe('scheduleFormError – kept schedules', () => {
+  it('still refuses a live template kept on a date more than a year back', () => {
+    const stored = rent({ next_due_date: '2024-01-01' });
+    expect(scheduleFormError('2024-01-01', '', '2026-10-27', stored)).toMatch(/more than a year ago/);
+  });
+  it('lets a paused template keep its old date while its end date changes', () => {
+    const stored = rent({ active: 0, next_due_date: '2025-01-01' });
+    expect(scheduleFormError('2025-01-01', '2027-01-01', '2026-10-27', stored)).toBeNull();
+  });
+});
+
+describe('isStaleConflict / postedOccurrenceKeys – missing input', () => {
+  it('is not a conflict with no error', () => {
+    expect(isStaleConflict(undefined)).toBe(false);
+  });
+  it('skips a missing row', () => {
+    expect([...postedOccurrenceKeys([null, { recurring_id: 'rent', occurrence_date: '2026-09-01' }])])
+      .toEqual(['rent|2026-09-01']);
+  });
+});
+
+describe('postingBatches – exact statements', () => {
+  it('builds no batch for no occurrences', () => {
+    expect(postingBatches(rent(), [], occurrenceSplits(rent()), { isPosted: () => false, newId: () => 'x', now: 'n' })).toEqual([]);
+  });
+
+  it('gives each occurrence its expense id and split ids, in order', () => {
+    let n = 0;
+    const plan = occurrenceSplits(rent());
+    const [batch] = postingBatches(rent(), [{ date: '2026-09-01', next: '2026-10-01' }], plan,
+      { isPosted: () => false, newId: () => `id-${++n}`, now: 'NOW' });
+    expect(batch.statements).toHaveLength(3);
+    expect(batch.statements[0].params[3]).toBe('NOW');
+    expect(batch.statements[1].params[0]).toBe('id-1');
+    expect(batch.statements[1].params[7]).toBe('NOW');
+    expect(batch.statements[2].params).toEqual(['id-2', 'id-1', 'ana', 100000, 'id-3', 'id-1', 'sam', 100000]);
+    expect(batch.items).toEqual([{ date: '2026-09-01', expenseId: 'id-1' }]);
+  });
+});
+
+describe('reminderSyncStatement – one column out of line', () => {
+  it('writes when only remind differs', () => {
+    expect(reminderSyncStatement(rent({ remind: 0, remind_to: 'payer', remind_scope: 'payer' }), false).params)
+      .toEqual([1, 'payer', 'rent', '2026-08-01T00:00:00.000Z']);
+  });
+  it('writes when only remind_to differs', () => {
+    expect(reminderSyncStatement(rent({ remind: 1, remind_to: 'payer', remind_scope: 'household' }), false).params)
+      .toEqual([1, 'household', 'rent', '2026-08-01T00:00:00.000Z']);
   });
 });

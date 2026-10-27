@@ -11,7 +11,7 @@
     "",
     "`break` is a RATCHET set just under the measured score. Raise it when the score",
     "rises; never lower it. Not part of preflight.sh: run it by hand after changing",
-    "Measured 81.1% on 2026-10-27 (1236 killed / 262 survived / 26 no-coverage of 1524); break set to 81.",
+    "Measured 90.75% on 2026-10-27 (1383 killed incl. 9 timeouts / 131 survived / 10 no-coverage of 1524); break set to 90.",
     "logic.js or its tests."
   ],
   "packageManager": "npm",
@@ -50,6 +50,6 @@
   "thresholds": {
     "high": 80,
     "low": 60,
-    "break": 81
+    "break": 90
   }
 }
