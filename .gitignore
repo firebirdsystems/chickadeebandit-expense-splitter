@@ -3,3 +3,5 @@ dist/
 .hub-sdk.js
 .DS_Store
 graft/
+.mutation/
+.stryker-tmp/
