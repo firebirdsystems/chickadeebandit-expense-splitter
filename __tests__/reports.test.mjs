@@ -76,6 +76,18 @@ describe("manifest.reports stays inside the hub's ceilings", () => {
     }
   });
 
+  it("offers the change history, and audits every table money is recorded in", () => {
+    // Either adult can delete or edit an expense, and the ledger view then
+    // shows only what is left. The change history is where the export says
+    // who wrote to or deleted from which table, and when. It names columns,
+    // never values, and a delete does not say which row. It reads the write
+    // audit, so a ledger table that stops being audited drops out silently.
+    expect(manifest.reports.change_history).toBe(true);
+    for (const table of ["expenses", "expense_splits", "settlements", "reimbursements", "recurring_expenses"]) {
+      expect(manifest.row_policies[table]?.audit_writes, `${table} is not audited`).toBe(true);
+    }
+  });
+
   it("declares change_history only alongside an audited table", () => {
     if (!manifest.reports?.change_history) return;
     const audited = Object.values(manifest.row_policies ?? {}).some((p) => p?.audit_writes === true);

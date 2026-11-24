@@ -21,7 +21,7 @@ import {
   monthKey, monthLabel, expenseMonths, rangeForPeriod, expensesInRange, summarize,
   sharesError, MAX_SHARES, CATEGORY_RULE_SPLIT,
   PAYMENT_SERVICES, paymentServiceFor, normalizeHandle, validateHandle, displayHandle,
-  payLink, handleMap,
+  payLink, handleMap, lastCalendarDay, requestPaymentIds, openRequests,
 } from '../src/logic.js';
 
 // ── computeSplits ─────────────────────────────────────────────────────────────
@@ -944,6 +944,14 @@ describe('handleMap / paymentServiceFor', () => {
     expect(map.get('zzz')).toBe(undefined);
     expect(handleMap(undefined).size).toBe(0);
   });
+  it('leaves out a removed username, which only its owner can still read', () => {
+    const map = handleMap([
+      { member_id: 'a', service: 'venmo', handle: 'sam', visibility: 'owner' },
+      { member_id: 'b', service: 'venmo', handle: 'pat', visibility: 'everyone' },
+    ]);
+    expect(map.has('a')).toBe(false);
+    expect(map.get('b')).toEqual({ service: 'venmo', handle: 'pat' });
+  });
   it('falls back to the catch-all service rather than returning undefined', () => {
     expect(paymentServiceFor('nope').id).toBe('other');
     expect(PAYMENT_SERVICES.some(s => s.id === 'venmo')).toBe(true);
@@ -1214,5 +1222,49 @@ describe('normalizeHandle / validateHandle – sigils', () => {
   });
   it('asks for a username when only a sigil was typed', () => {
     expect(validateHandle('venmo', '@')).toEqual({ ok: false, error: 'Enter your username.' });
+  });
+});
+
+describe('lastCalendarDay', () => {
+  it("turns a range's day 32 into the month's real last day", () => {
+    expect(lastCalendarDay('2026-02-32')).toBe('2026-02-28');
+    expect(lastCalendarDay('2028-02-32')).toBe('2028-02-29');
+    expect(lastCalendarDay('2026-04-32')).toBe('2026-04-30');
+    expect(lastCalendarDay('2026-12-32')).toBe('2026-12-31');
+  });
+  it('leaves a real date, and no date, alone', () => {
+    expect(lastCalendarDay('2026-02-14')).toBe('2026-02-14');
+    expect(lastCalendarDay(null)).toBe(null);
+  });
+});
+
+// A request stands on its own and is kept out of the shared balance, so the
+// payment an earlier version recorded for one is left out too: counted, it
+// showed the member who had just paid as owed the money back.
+describe('reimbursement requests and the shared balance', () => {
+  const at = '2026-11-03T10:00:00.000Z';
+  const request = (status, over = {}) => ({ id: 'r1', requester_id: 'alice', payer_id: 'bob', amount_cents: 5000, status, updated_at: at, ...over });
+  const payment = (over = {}) => ({ id: 'p1', from_id: 'bob', to_id: 'alice', amount_cents: 5000, settled_at: at, ...over });
+
+  it("finds the payment written in the same batch that closed a request", () => {
+    expect([...requestPaymentIds([payment()], [request('settled')])]).toEqual(['p1']);
+    const paid = requestPaymentIds([payment()], [request('settled')]);
+    expect(computeBalances([], [], [payment()].filter(x => !paid.has(x.id)))).toEqual({});
+  });
+
+  it('leaves every other payment in the balance', () => {
+    const settled = [request('settled')];
+    expect(requestPaymentIds([payment({ settled_at: '2026-11-03T10:00:00.001Z' })], settled).size).toBe(0);
+    expect(requestPaymentIds([payment({ amount_cents: 4999 })], settled).size).toBe(0);
+    expect(requestPaymentIds([payment({ from_id: 'alice', to_id: 'bob' })], settled).size).toBe(0);
+    // Only a request that was closed as paid had a payment written with it.
+    expect(requestPaymentIds([payment()], [request('locked'), request('cancelled', { id: 'r2' })]).size).toBe(0);
+    expect(requestPaymentIds([payment()], undefined).size).toBe(0);
+  });
+
+  it('lists confirmed requests not yet paid, and nothing else', () => {
+    expect(openRequests([request('locked'), request('pending', { id: 'r2' }), request('settled', { id: 'r3' })]).map(r => r.id))
+      .toEqual(['r1']);
+    expect(openRequests(undefined)).toEqual([]);
   });
 });

@@ -563,10 +563,11 @@ import {
   computeBalances, simplifyDebts, computeSplits, validateCustomSplits,
   fmtSplit, fmtDate,
   computeSplitsWithCategory, reimbursementStatus, reimbursementTerms, validateReimbursement,
+  requestPaymentIds, openRequests,
   validateCategoryPercents, TOTAL_BP, searchableFields,
   SPLIT_METHODS, splitTypeLabel, validateShares, sharesError, MAX_SHARES,
   CATEGORY_RULE_SPLIT, apportionByShares, apportionByPercent,
-  summarize, expenseMonths, monthLabel, rangeForPeriod, monthKey,
+  summarize, expenseMonths, monthLabel, rangeForPeriod, lastCalendarDay, monthKey,
   PAYMENT_SERVICES, paymentServiceFor, validateHandle, displayHandle, payLink, handleMap,
   failureLine, outcomeUnknown, pinnedWriteOutcome,
   CADENCES, cadenceFor, REMIND_SCOPES, MAX_POSTS_PER_RUN, dueOccurrences, resumeDate,
@@ -894,7 +895,13 @@ async function loadData({ withRecurring = false } = {}) {
 }
 
 function recompute() {
-  balances     = computeBalances(expenses, splits, settlements);
+  // A reimbursement request is kept out of the shared balance, and so is any
+  // payment an earlier version recorded for one (requestPaymentIds).
+  // Only the request's two parties can see it, so a member outside it still
+  // counts an old request payment. Accepted: fixing that means rewriting
+  // stored payments, and old data is left as it is.
+  const paidRequests = requestPaymentIds(settlements, requests);
+  balances     = computeBalances(expenses, splits, settlements.filter(x => !paidRequests.has(x.id)));
   transactions = simplifyDebts(balances);
 }
 
@@ -1148,14 +1155,13 @@ function renderExportBlock() {
 }
 
 // rangeForPeriod's upper bound is the synthetic '-32' that makes a string
-// comparison cover a whole month without knowing its length. The hub validates
-// ?to= as a real date and a reader would rightly balk at "September 32", so
-// both the request and the on-screen hint use the last calendar day. Every
-// month has a 31st in string terms, and no stored date can fall between the
-// two, so nothing is lost by clamping.
+// comparison cover a whole month without knowing its length. An export states
+// its range, and the hub refuses a date that does not exist, so both the
+// request and the on-screen hint use the month's real last day: "February 28",
+// never "February 31". No stored date can fall after it, so nothing is lost.
 function reportBounds() {
   const { from, to } = rangeForPeriod(summaryPeriod);
-  return { from, to: to ? to.replace(/-32$/, '-31') : to };
+  return { from, to: to ? lastCalendarDay(to) : to };
 }
 
 window._runReport = function(viewId, format) {
@@ -1317,6 +1323,16 @@ function renderBalanceBanner() {
 /* ── Balances view ───────────────────────────────────── */
 function renderBalancesView() {
   const el = document.getElementById('view-balances');
+  // Kept apart from the shared balance: a request is paid with its own
+  // Record payment, never through Settle, so it has one way to be paid.
+  const owedByRequest = openRequests(requests);
+  const requestsHtml = owedByRequest.length
+    ? `<div class="section-label">Confirmed requests</div>${owedByRequest.map(requestDebtCard).join('')}`
+    : '';
+  if (transactions.length === 0 && owedByRequest.length) {
+    el.innerHTML = requestsHtml;
+    return;
+  }
   if (transactions.length === 0) {
     el.innerHTML = `
       <div class="empty-state">
@@ -1333,7 +1349,30 @@ function renderBalancesView() {
   let html = '';
   if (mine.length)  html += `<div class="section-label">Your balances</div>${mine.map(debtCard).join('')}`;
   if (other.length) html += `<div class="section-label">Others</div>${other.map(debtCard).join('')}`;
-  el.innerHTML = html;
+  el.innerHTML = html + requestsHtml;
+}
+
+function requestDebtCard(r) {
+  const from = memberMap.get(r.payer_id)     ?? { id: r.payer_id,     name: r.payer_id,     role: 'adult' };
+  const to   = memberMap.get(r.requester_id) ?? { id: r.requester_id, name: r.requester_id, role: 'adult' };
+  const cls  = r.payer_id === ME.id ? 'debt-card i-owe' : r.requester_id === ME.id ? 'debt-card they-owe' : 'debt-card';
+  return `
+    <div class="${cls}" data-testid="request-debt" data-request-id="${esc(r.id)}">
+      <div class="debt-members">
+        ${avatar(from)}
+        <span class="debt-arrow">→</span>
+        ${avatar(to)}
+        <div class="debt-names">
+          <span class="debt-from">${esc(from.name)}</span>
+          <span class="debt-verb">owes</span>
+          <span class="debt-to">${esc(to.name)}</span>
+          <span class="debt-verb">· ${esc(r.note || 'Shared cost')}</span>
+        </div>
+      </div>
+      <div class="debt-right">
+        <span class="debt-amount">${fmtMoney(r.amount_cents)}</span>
+      </div>
+    </div>`;
 }
 
 function debtCard(t) {
@@ -2026,6 +2065,10 @@ window._submitExpense = async function() {
   const description  = document.getElementById('f-desc')?.value.trim() || 'Expense';
   const date         = document.getElementById('f-date')?.value || hubToday();
   const splitMembers = [...f.splitAmong];
+  // Read once: the form stays editable while the save runs, and the stored
+  // row, the retry's read-back and the list must all describe one payer.
+  const paidBy       = f.paidBy;
+  const category     = f.category;
 
   const customCents = f.splitType === 'custom' ? customCentsFor(splitMembers) : {};
 
@@ -2035,37 +2078,31 @@ window._submitExpense = async function() {
   // say something the numbers underneath contradict. That is exactly the
   // "why is this $80" question this app exists to answer.
   const { splits: splitResult, source: splitSource } = computeSplitsWithCategory(
-    amountCents, splitMembers, f.splitType, customCents, categorySplits, f.category, f.weights);
+    amountCents, splitMembers, f.splitType, customCents, categorySplits, category, f.weights);
 
   const btn = origin?.querySelector('#f-save-btn');
   if (origin) origin.dataset.saving = '1';
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
-  const expId = crypto.randomUUID();
-  const now   = new Date().toISOString();
-
   const receiptFileId = f.receiptFileId ?? null;
   if (origin) origin.savedReceipt = receiptFileId;
-  const newExp = {
-    id: expId, paid_by: f.paidBy, amount_cents: amountCents,
-    description, category: f.category, date, split_type: splitSource, created_at: now,
-    receipt_file_id: receiptFileId,
-  };
-  const newSplits = splitResult.map(s => ({
-    id: crypto.randomUUID(), expense_id: expId,
-    member_id: s.member_id, amount_cents: s.amount_cents,
-  }));
+  let newSplits = [];
 
   // The form stays open until the hub has the expense: a refused save leaves
   // what was typed (and the attached receipt) in place to send again, and
   // nothing is drawn in the list for an expense the hub never got.
   //
   // One atomic batch, so a retry can never land beside an expense row whose
-  // splits failed to follow it.
-  try {
+  // splits failed to follow it. The expense id is pinned to the form, so a
+  // retry after a lost answer cannot add a second copy (insertPinned).
+  const saved = await insertPinned(origin, (expId, now) => {
+    newSplits = splitResult.map(s => ({
+      id: crypto.randomUUID(), expense_id: expId,
+      member_id: s.member_id, amount_cents: s.amount_cents,
+    }));
     const statements = [{
       sql: 'INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, receipt_file_id) VALUES (?,?,?,?,?,?,?,?,?)',
-      params: [expId, f.paidBy, amountCents, description, f.category, date, splitSource, now, receiptFileId],
+      params: [expId, paidBy, amountCents, description, category, date, splitSource, now, receiptFileId],
     }];
     if (newSplits.length > 0) {
       const placeholders = newSplits.map(() => '(?,?,?,?)').join(',');
@@ -2074,23 +2111,52 @@ window._submitExpense = async function() {
         params: newSplits.flatMap(s => [s.id, s.expense_id, s.member_id, s.amount_cents]),
       });
     }
-    await dbBatch(statements);
-  } catch (e) {
-    console.error('submitExpense failed', e);
-    saveFailed(origin, btn, 'Save Expense', failureLine(e, { action: 'save the expense', thing: 'expense' }));
-    if (origin) delete origin.savedReceipt;
+    return dbBatch(statements);
+  },
+  (expId) => expenses.find(x => x.id === expId),
+  (stored) => stored.paid_by === paidBy && Number(stored.amount_cents) === amountCents && stored.date === date
+    && stored.category === category && stored.description === description
+    && (stored.receipt_file_id ?? null) === receiptFileId
+    // The split is part of what was typed: a form re-split since the earlier
+    // attempt is not the expense that attempt stored.
+    && stored.split_type === splitSource
+    && sameAllocations(splits.filter(x => x.expense_id === stored.id), splitResult));
+  if (saved.outcome === 'failed') {
+    if (saved.error) console.error('submitExpense failed', saved.error);
+    saveFailed(origin, btn, 'Save Expense', failureLine(saved.error, { action: 'save the expense', thing: 'expense' }));
+    // Still the save's while it may have landed: closing the form then leaves
+    // the receipt rather than delete one a stored expense names.
+    if (origin && saved.stored === false) delete origin.savedReceipt;
     // The receipt is kept only for a form that can still send it again. One
-    // dismissed, or re-pointed at another file, while the save ran cannot.
-    if (modalEl !== origin || f.receiptFileId !== receiptFileId) reclaimReceipt(receiptFileId);
+    // dismissed, or re-pointed at another file, while the save ran cannot,
+    // and goes, but only when nothing was stored: an answer lost on the way
+    // back may belong to an expense that now names it.
+    if (saved.stored === false && (modalEl !== origin || f.receiptFileId !== receiptFileId)) reclaimReceipt(receiptFileId);
     // The form may have been edited into an invalid state while it saved.
     if (modalEl === origin) validateForm();
     return;
   }
-
-  expenses = [newExp, ...expenses];
-  splits   = [...splits, ...newSplits];
-  recompute();
+  if (saved.outcome === 'earlier') {
+    // The earlier save's expense names its own receipt. One this attempt
+    // carried instead was never stored and goes; savedReceipt stays on it, so
+    // closing the form reclaims only a receipt picked after this attempt.
+    const earlierReceipt = expenses.find(x => x.id === saved.id)?.receipt_file_id ?? null;
+    if (receiptFileId && receiptFileId !== earlierReceipt) reclaimReceipt(receiptFileId);
+    closeModalIfCurrent(origin);
+    toast(EARLIER_SAVE, 'error');
+    return;
+  }
   closeModalIfCurrent(origin);
+  const { id: expId, now } = saved;
+  if (!expenses.some(x => x.id === expId)) {
+    expenses = [{
+      id: expId, paid_by: paidBy, amount_cents: amountCents,
+      description, category, date, split_type: splitSource, created_at: now,
+      receipt_file_id: receiptFileId,
+    }, ...expenses];
+    splits = [...splits, ...newSplits];
+  }
+  recompute();
   renderAll();
   logActivity('finance_transaction_added', `${ME.name} added "${description}"`, {
     deepLink: { appId: APP_ID, params: { expenseId: expId } },
@@ -2707,7 +2773,7 @@ window._setRecurringActive = async function(id, on) {
   await withPostingHeld(() => setRecurringActive(id, on));
 };
 
-async function setRecurringActive(id, on) {
+async function setRecurringActive(id, on, done = on ? 'Resumed' : 'Paused') {
   const t = recurring.find(x => x.id === id);
   if (!t) { recurringBusy.delete(id); renderRecurring(); return; }
   const now = new Date().toISOString();
@@ -2744,7 +2810,7 @@ async function setRecurringActive(id, on) {
   recurringBusy.delete(id);
   recurring = recurring.map(x => (x.id === id ? { ...x, ...updated } : x));
   renderAll();
-  toast(on ? 'Resumed' : 'Paused', 'success');
+  toast(done, 'success');
   if (on) postDueRecurring().catch(e => console.error('posting repeating expenses failed', e));
 };
 
@@ -2770,6 +2836,23 @@ async function stopRecurring(id) {
     failed = e;
     // An answer lost on the way back: the re-read says whether the row went.
     if (outcomeUnknown(e) && await rereadAndRender({ withRecurring: true }) && !recurringFailed && !recurring.some(x => x.id === id)) failed = null;
+  }
+  // The hub refuses to delete a template while a space's records are being
+  // kept. What the member asked for is that nothing more is added, and pausing
+  // does that without removing anything, so do it rather than leave the
+  // template posting behind an error. Through the ordinary pause, which also
+  // switches its reminders off and reports its own outcome.
+  // Said only once the pause has landed: a refusal for some other reason
+  // refuses the pause too, and that reports itself.
+  // One already paused has nothing left to pause: say so and leave it.
+  if (failed && failed.status === 403 && !recurring.find(x => x.id === id)?.active) {
+    recurringBusy.delete(id);
+    renderRecurring();
+    toast('This can’t be removed right now.', 'error');
+    return;
+  }
+  if (failed && failed.status === 403) {
+    return setRecurringActive(id, false, 'This couldn’t be removed, so it has been paused instead.');
   }
   recurringBusy.delete(id);
   if (failed) {
@@ -2972,30 +3055,29 @@ window._submitSettlement = async function(fromId, toId) {
   if (!val || val <= 0) return;
   const amountCents = Math.round(val * 100);
 
-  const id  = crypto.randomUUID();
-  const now = new Date().toISOString();
-
-  const newSettlement = { id, from_id: fromId, to_id: toId, amount_cents: amountCents, note: '', settled_at: now, created_at: now };
-
   // As in _submitExpense: the form stays open, and nothing reads "recorded",
   // until the hub has the payment.
   const btn = origin?.querySelector('[data-action="submitSettlement"]');
   if (origin) origin.dataset.saving = '1';
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  try {
-    await db(
+  const saved = await insertPinned(origin,
+    (id, now) => db(
       'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
-      [id, fromId, toId, amountCents, '', now, now]
-    );
-  } catch (e) {
-    console.error('submitSettlement failed', e);
-    saveFailed(origin, btn, 'Record Payment', failureLine(e, { action: 'record the payment', thing: 'payment' }));
+      [id, fromId, toId, amountCents, '', now, now]),
+    (id) => settlements.find(x => x.id === id),
+    (stored) => stored.from_id === fromId && stored.to_id === toId && Number(stored.amount_cents) === amountCents);
+  if (saved.outcome === 'failed') {
+    if (saved.error) console.error('submitSettlement failed', saved.error);
+    saveFailed(origin, btn, 'Record Payment', failureLine(saved.error, { action: 'record the payment', thing: 'payment' }));
     return;
   }
-
-  settlements = [newSettlement, ...settlements];
-  recompute();
   closeModalIfCurrent(origin);
+  if (saved.outcome === 'earlier') { toast(EARLIER_SAVE, 'error'); return; }
+  const { id, now } = saved;
+  if (!settlements.some(x => x.id === id)) {
+    settlements = [{ id, from_id: fromId, to_id: toId, amount_cents: amountCents, note: '', settled_at: now, created_at: now }, ...settlements];
+  }
+  recompute();
   renderAll();
   toast('Payment recorded', 'success');
   const fromName = memberMap.get(fromId)?.name ?? fromId;
@@ -3173,24 +3255,25 @@ window._savePayHandle = async function() {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   const now = new Date().toISOString();
   try {
-    // Replace rather than upsert: the unique index on member_id means a plain
-    // INSERT after the delete can only ever leave one row standing, and the
-    // policy rewrites both statements with the same owner guard, so neither
-    // half can reach anybody else's row even if this id were tampered with.
-    //
-    // One atomic batch, not two calls. As two, a DELETE that succeeded and an
-    // INSERT that failed left the member with NO handle while the toast told
-    // them the save had failed — so the next person to settle up saw nothing
-    // and the member had no reason to look.
+    // One upsert over the unique index on member_id: it adds the row the first
+    // time and changes it in place after that. No DELETE: the table is audited,
+    // and the hub refuses a delete on an audited table while a space's records
+    // are being kept, which made a member unable to correct their own username.
+    // One statement, so it cannot half-apply and it leaves one entry in the
+    // change history per save. The hub pins member_id to the caller on both
+    // arms, so this cannot reach anybody else's row.
     //
     // `visibility` is written explicitly rather than left to the column
     // default: it is what owner_or_visibility reads the row through, and a
     // handle nobody but its owner can see is a handle nobody can pay.
-    await dbBatch([
-      { sql: 'DELETE FROM app_expense_splitter__payment_handles WHERE member_id = ?', params: [ME.id] },
-      { sql: 'INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, visibility, updated_at) VALUES (?,?,?,?,?,?)',
+    const saved = await dbBatch([
+      { sql: 'INSERT INTO app_expense_splitter__payment_handles (id, member_id, service, handle, visibility, updated_at) VALUES (?,?,?,?,?,?) '
+          + 'ON CONFLICT(member_id) DO UPDATE SET service = excluded.service, handle = excluded.handle, visibility = excluded.visibility, updated_at = excluded.updated_at',
         params: [crypto.randomUUID(), ME.id, service, check.handle, 'everyone', now] },
     ]);
+    // A 200 that wrote no row is not a save, whatever the status says.
+    const wrote = (saved?.results ?? []).reduce((n, r) => n + (Number(r?.changed) || 0), 0);
+    if (wrote === 0) throw new Error('Nothing was saved.');
     await reread();
     closeModal();
     renderAll();
@@ -3202,9 +3285,15 @@ window._savePayHandle = async function() {
   }
 };
 
+// Removing hides the username rather than deleting the row: the row policy
+// (owner_or_visibility) then shows it to nobody but its owner, and the app
+// reads only 'everyone' rows as a way to pay. A delete was refused in a space
+// whose records are being kept, which left a username the member may no
+// longer control on everyone's settle-up screen. Saving again publishes it.
 window._clearPayHandle = async function() {
   try {
-    await db('DELETE FROM app_expense_splitter__payment_handles WHERE member_id = ?', [ME.id]);
+    await db("UPDATE app_expense_splitter__payment_handles SET visibility = 'owner', updated_at = ? WHERE member_id = ?",
+      [new Date().toISOString(), ME.id]);
     await reread();
     closeModal();
     renderAll();
@@ -3265,8 +3354,9 @@ window._openRequest = function() {
       <label class="field"><span>What for</span>
         <input type="text" id="r-note" maxlength="200" placeholder="e.g. Half of the dentist bill">
       </label>
-      <p class="hint">They'll be asked to confirm. Nothing is recorded against the
-        balance until you both agree on the amount.</p>
+      <p class="hint">They'll be asked to confirm. Once you both agree it shows as owed
+        until it's recorded paid. It stays out of the shared balance, so there is
+        no need to add it as an expense as well.</p>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
@@ -3277,7 +3367,56 @@ window._openRequest = function() {
   requestAnimationFrame(() => modalEl?.querySelector('[data-autofocus]')?.focus());
 };
 
+// An insert from a form, safe to retry after a lost answer. The id and stamp
+// are pinned to the open form until the outcome is known, so a retry sends the
+// same ones (a second copy is refused as a duplicate) and the re-read that
+// follows an unknown outcome can tell whether an earlier attempt landed.
+// `find` reads the stored row back by id; `same` says whether it carries what
+// the form says now. Returns { outcome: 'landed', id, now }; 'earlier' when an
+// earlier attempt landed with values the form has since changed (saving again
+// would be a second row); or 'failed' with the error to report (null when
+// nothing is known, for the plain line) and `stored` (false only when nothing
+// was stored; undefined when that is not known).
+async function insertPinned(origin, write, find, same) {
+  const holder = origin ?? {};
+  if (!holder.insertPin) holder.insertPin = { id: crypto.randomUUID(), now: new Date().toISOString() };
+  const { id, now } = holder.insertPin;
+  try {
+    await write(id, now);
+  } catch (e) {
+    if (!outcomeUnknown(e)) {
+      // A refusal speaks for this attempt only. While an earlier attempt with
+      // the same id is unaccounted for, the row may be there: the pin stays,
+      // so a later press cannot add a second row, and nothing that row names
+      // (its receipt) may be taken for unused.
+      if (holder.insertPin.unsure) return { outcome: 'failed', error: e, stored: undefined };
+      delete holder.insertPin;
+      return { outcome: 'failed', error: e, stored: false };
+    }
+    const reread = await rereadAndRender();
+    const stored = reread ? find(id) : undefined;
+    if (!stored) {
+      // A re-read that finds no row with this id settles every attempt that
+      // used it; one that failed settles nothing.
+      holder.insertPin.unsure = !reread;
+      return { outcome: 'failed', error: reread && !isDuplicate(e) ? e : null, stored: reread ? false : undefined };
+    }
+    if (!same(stored)) { delete holder.insertPin; return { outcome: 'earlier', id, now }; }
+  }
+  delete holder.insertPin;
+  return { outcome: 'landed', id, now };
+}
+
+// Whether two split lists give every member the same share, in any order.
+function sameAllocations(a, b) {
+  const key = (list) => list.map(x => `${x.member_id}:${Number(x.amount_cents)}`).sort().join('|');
+  return key(a) === key(b);
+}
+
+const EARLIER_SAVE = 'An earlier save of this went through with the values it had then. Check it, and add another if needed.';
+
 window._submitRequest = async function() {
+  const origin = modalEl;
   const btn = document.getElementById('r-submit');
   const payerId = document.getElementById('r-payer')?.value;
   const note    = (document.getElementById('r-note')?.value ?? '').trim();
@@ -3288,21 +3427,30 @@ window._submitRequest = async function() {
   if (!check.ok) { toast(check.error, 'error'); return; }
 
   btn.disabled = true; btn.textContent = 'Sending…';
-  const id  = crypto.randomUUID();
-  const now = new Date().toISOString();
+  const saved = await insertPinned(origin,
+    (id, now) => db(
+      'INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+      [id, ME.id, payerId, amountCents, note, 'pending', now, now]),
+    (id) => (requestsFailed ? undefined : requests.find(x => x.id === id)),
+    (stored) => stored.payer_id === payerId && Number(stored.row_amount_cents) === amountCents && (stored.row_note ?? '') === note);
+  if (saved.outcome !== 'landed') {
+    if (saved.outcome === 'earlier') { closeModalIfCurrent(origin); toast(EARLIER_SAVE, 'error'); return; }
+    btn.disabled = false; btn.textContent = 'Send request';
+    if (saved.error) console.error('submitRequest failed', saved.error);
+    toast(failureLine(saved.error, { action: 'send the request', thing: 'request' }), 'error');
+    return;
+  }
+  const { id } = saved;
 
   try {
-    await db(
-      'INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
-      [id, ME.id, payerId, amountCents, note, 'pending', now, now]
-    );
     // Bootstraps the agreement row (init_from_table) and records my own consent
     // to exactly what was just written. The request row is stored by now, so a
     // failure here is not a failed send: saying so left the form open, and a
     // second press inserted a second request. The card offers Confirm instead.
     let confirmed = true;
     try {
-      await agreeOnServer(id, true, { amount_cents: amountCents, note });
+      // An earlier attempt that landed may have confirmed it already.
+      if (!requests.find(x => x.id === id)?.requester_agreed) await agreeOnServer(id, true, { amount_cents: amountCents, note });
     } catch (e) {
       confirmed = false;
       console.error('submitRequest: confirmation failed', e);
@@ -3315,9 +3463,10 @@ window._submitRequest = async function() {
     else toast('Request sent, but your confirmation wasn’t recorded — press Confirm on it.', 'error');
     publishEvent('expense.reimbursement_requested', id, { payer_id: payerId, amount_cents: amountCents });
   } catch (e) {
-    btn.disabled = false; btn.textContent = 'Send request';
-    console.error('submitRequest failed', e);
-    toast(failureLine(e, { action: 'send the request', thing: 'request' }), 'error');
+    // The request is stored; only showing it failed.
+    console.error('render after a write failed', e);
+    closeModalIfCurrent(origin);
+    toast('Request sent', 'success');
   }
 };
 
@@ -3388,12 +3537,14 @@ window._cancelRequest = async function(id) {
   }
 };
 
-// A confirmed request becomes a real settlement — the same row the balance math
-// already understands — and the request is closed so it can't be settled twice.
-// The settlement id and time are pinned per request until the outcome is
-// known: a retry after a lost answer sends the same ones, so a re-read that
-// finds this id knows the earlier attempt landed. One attempt per request at a
-// time, so two in flight cannot both find the pin and both report success.
+// Paying a confirmed request closes it, and that is all: the request is kept
+// out of the shared balance, so its payment is too. Recorded as a settlement,
+// it showed the member who had just paid as owed the money back, and other
+// members, who cannot read the request, saw only that payment.
+// The close time is pinned per request until the outcome is known: a retry
+// after a lost answer sends the same one, so a re-read that finds the request
+// closed at this time knows the earlier attempt landed. One attempt per
+// request at a time, so two in flight cannot both find the pin.
 const settlePins = new Map();
 const settling = new Set();
 window._settleRequest = async function(id) {
@@ -3406,13 +3557,12 @@ window._settleRequest = async function(id) {
 };
 
 async function settleRequest(id, r) {
-  if (!settlePins.has(id)) settlePins.set(id, { sid: crypto.randomUUID(), now: new Date().toISOString() });
-  const { sid, now } = settlePins.get(id);
+  if (!settlePins.has(id)) settlePins.set(id, { now: new Date().toISOString() });
+  const { now } = settlePins.get(id);
   let rereadDone = false;
   try {
-    // One transaction: the request closes only while it is still open, and
-    // the settlement lands only if it did. Both parties pressing the button
-    // cannot record the payment twice, and neither half can stand alone.
+    // The request closes only while it is still open, so both parties pressing
+    // the button cannot record it twice.
     //
     // 'pending' is the request row's own status for the whole time it is open.
     // "Confirmed" (`r.status === 'locked'`, checked above) is read from the
@@ -3421,12 +3571,10 @@ async function settleRequest(id, r) {
     await dbBatch([
       { sql: 'UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ? AND status = ?',
         params: ['settled', now, id, 'pending'], requireChanges: true },
-      { sql: 'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?,?,?,?,?,?,?)',
-        params: [sid, r.payer_id, r.requester_id, r.amount_cents, r.note ?? '', now, now] },
     ]);
   } catch (e) {
-    // An unmet requireChanges rolls the batch back: someone closed the request
-    // first — or an earlier attempt of this one did, its answer lost.
+    // An unmet requireChanges: someone closed the request first — or an
+    // earlier attempt of this one did, its answer lost.
     const conflict = isStaleConflict(e);
     if (!conflict && !outcomeUnknown(e)) {
       settlePins.delete(id);
@@ -3435,16 +3583,15 @@ async function settleRequest(id, r) {
       return;
     }
     const reread = await rereadAndRender();
+    const current = requestsFailed ? undefined : requests.find(x => x.id === id);
     const outcome = pinnedWriteOutcome({
       conflict, reread,
-      landed: settlements.some(s => s.id === sid),
-      found: requestsFailed ? undefined : requests.some(x => x.id === id),
+      landed: current?.status === 'settled' && current.updated_at === now,
+      found: requestsFailed ? undefined : !!current,
     });
     if (outcome !== 'landed') {
       if (outcome === 'removed' || outcome === 'changed') settlePins.delete(id);
       if (!conflict) console.error('settleRequest failed', e);
-      // The settlement id is ours: with the re-read failed, a UNIQUE answer may be
-      // this request's own first try, so nothing is known — "try again".
       toast(outcome === 'failed' ? failureLine(reread ? e : null, { action: 'record the payment', thing: 'request' })
         : outcome === 'removed' ? 'This request has been removed.'
         : outcome === 'changed' ? 'This request was already settled or cancelled.'
@@ -3461,7 +3608,7 @@ async function settleRequest(id, r) {
     renderAll();
   } catch (e) { console.error('render after a write failed', e); }
   toast('Payment recorded', 'success');
-  publishEvent('expense.settled', sid, {
+  publishEvent('expense.settled', id, {
     from_id: r.payer_id, to_id: r.requester_id, amount_cents: r.amount_cents,
   });
 }

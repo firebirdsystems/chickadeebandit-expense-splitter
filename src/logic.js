@@ -68,6 +68,32 @@ export function computeBalances(expenses, splits, settlements) {
 }
 
 /**
+ * The payments an earlier version recorded when a reimbursement request was
+ * paid. A request stays out of the shared balance (it stands on its own: the
+ * cost it is for need not be in the ledger), so its payment must too: counted,
+ * it showed the member who had just paid as owed the money back. Paying a
+ * request now only closes it. These older rows were written in the same batch
+ * that closed the request, so they carry its parties, its amount and its close
+ * time exactly. Only a request's two parties can read it, so only their view
+ * can leave these out.
+ */
+export function requestPaymentIds(settlements, requests) {
+  const closes = new Set((requests ?? [])
+    .filter(r => r.status === 'settled')
+    .map(r => `${r.payer_id}|${r.requester_id}|${Number(r.amount_cents)}|${r.updated_at}`));
+  const ids = new Set();
+  for (const s of settlements ?? []) {
+    if (closes.has(`${s.from_id}|${s.to_id}|${Number(s.amount_cents)}|${s.settled_at}`)) ids.add(s.id);
+  }
+  return ids;
+}
+
+/** Confirmed requests not yet paid: owed, and shown apart from the balance. */
+export function openRequests(requests) {
+  return (requests ?? []).filter(r => r.status === 'locked');
+}
+
+/**
  * Convert a balance map into the minimum number of "A owes B $X" transactions
  * using a greedy creditor/debtor matching algorithm.
  */
@@ -524,6 +550,18 @@ export function rangeForPeriod(period) {
   return { from: null, to: null };
 }
 
+/**
+ * A range bound's synthetic day 32 as the month's real last day
+ * ('2026-02-32' → '2026-02-28'); any other date is returned unchanged.
+ */
+export function lastCalendarDay(bound) {
+  const m = /^(\d{4})-(\d{2})-32$/.exec(bound ?? '');
+  if (!m) return bound;
+  // Day 0 of the next month is the last day of this one.
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]), 0)).getUTCDate();
+  return `${m[1]}-${m[2]}-${String(day).padStart(2, '0')}`;
+}
+
 /** Expenses whose `date` falls inside an inclusive range; null bounds are open. */
 export function expensesInRange(expenses, { from = null, to = null } = {}) {
   return (expenses ?? []).filter(e => {
@@ -707,7 +745,11 @@ export function payLink(service, handle, amountCents = 0, note = '') {
 
 /** member_id → { service, handle } for the rows the app loaded. */
 export function handleMap(rows) {
-  return new Map((rows ?? []).map(r => [r.member_id, { service: r.service, handle: r.handle }]));
+  // A removed username stays as a row its owner alone can read
+  // (visibility 'owner'); it is not a way to pay, even for them.
+  return new Map((rows ?? [])
+    .filter(r => r.visibility === undefined || r.visibility === 'everyone')
+    .map(r => [r.member_id, { service: r.service, handle: r.handle }]));
 }
 
 /**

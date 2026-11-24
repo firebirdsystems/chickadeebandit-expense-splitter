@@ -45,13 +45,42 @@ describe("replacing a payment handle cannot lose the old one", () => {
   const src = body();
   const save = /window\._savePayHandle = async function[\s\S]*?\n};/.exec(src);
 
-  it("sends the DELETE and the INSERT as one transaction", () => {
+  it("saves with one statement through the batch door", () => {
     expect(save, "_savePayHandle not found").toBeTruthy();
-    // As two sequential calls, a DELETE that succeeded and an INSERT that
-    // failed left the member with no handle and a toast saying the save failed.
+    // Two statements could half-apply as separate calls, and as a batch each
+    // left its own entry in the change history, one for a write that did not
+    // happen.
     expect(save[0]).toContain("dbBatch(");
     expect((save[0].match(/await db\(/g) ?? []).length,
       "_savePayHandle still issues a bare single-statement write").toBe(0);
+    expect((save[0].match(/\bsql:/g) ?? []).length).toBe(1);
+  });
+
+  it("changes the row in place and never deletes it", () => {
+    // payment_handles is audited, and the hub refuses a DELETE on an audited
+    // table while a space's records are being kept. Saving by delete + insert
+    // left a member in such a space unable to correct their own username.
+    expect(save[0]).not.toMatch(/DELETE FROM/i);
+    // An upsert over the unique member_id index.
+    expect(save[0]).toMatch(/INSERT INTO app_expense_splitter__payment_handles[\s\S]*?ON CONFLICT\(member_id\) DO UPDATE SET/);
+    for (const column of ["service", "handle", "visibility", "updated_at"]) {
+      expect(save[0], column).toContain(`${column} = excluded.${column}`);
+    }
+  });
+
+  it("does not say Saved when the statement wrote no row", () => {
+    expect(save[0]).toMatch(/const saved = await dbBatch\(/);
+    expect(save[0]).toMatch(/if \(wrote === 0\) throw new Error\(/);
+    expect(save[0].indexOf("if (wrote === 0) throw"))
+      .toBeLessThan(save[0].indexOf("toast('Saved'"));
+  });
+
+  // A delete is refused while a space's records are being kept, which left a
+  // username the member may no longer control on everyone's settle-up screen.
+  it("removes by hiding the row from everyone but its owner, never by deleting it", () => {
+    const clear = /window\._clearPayHandle = async function[\s\S]*?\n};/.exec(src);
+    expect(clear[0]).toContain("UPDATE app_expense_splitter__payment_handles SET visibility = 'owner', updated_at = ? WHERE member_id = ?");
+    expect(clear[0]).not.toMatch(/DELETE FROM app_expense_splitter__payment_handles/);
   });
 
   it("has a batch helper that posts the endpoint's statements shape", () => {
@@ -402,6 +431,31 @@ describe("repeating expenses: page wiring", () => {
       expect(d).toMatch(/!recurring\.some\(x => x\.id === id\)\) failed = null/);
     });
 
+    it("pauses a repeating expense the hub will not let it remove, rather than leave it posting", () => {
+      // recurring_expenses is audited, and the hub refuses a DELETE on an
+      // audited table while a space's records are being kept. A stop that only
+      // reported the refusal left the template adding expenses.
+      const d = fnBody("async function stopRecurring(id)");
+      // Through the ordinary pause, which also switches the reminders off: a
+      // bare `active = 0` would leave a reminder for an occurrence that never posts.
+      expect(d).toMatch(/if \(failed && failed\.status === 403\) \{\n    return setRecurringActive\(id, false, '[^']+paused instead\.'\);\n  \}/);
+      // One already paused is left as it is: pausing it again would toast
+      // "paused instead" on every tap for a write that changed nothing.
+      const paused = d.indexOf("if (failed && failed.status === 403 && !recurring.find(x => x.id === id)?.active) {");
+      expect(paused).toBeGreaterThan(-1);
+      expect(paused).toBeLessThan(d.indexOf("return setRecurringActive(id, false,"));
+      expect(d.slice(paused, d.indexOf("return setRecurringActive(id, false,")))
+        .toMatch(/recurringBusy\.delete\(id\);\n    renderRecurring\(\);\n    toast\('This can’t be removed right now\.', 'error'\);\n    return;/);
+      // Nothing is said before the pause lands: a refusal for another reason
+      // refuses the pause too, and a "paused" toast would then be false.
+      expect(d).not.toMatch(/toast\([^)]*paused/);
+      expect(fnBody("async function setRecurringActive(id, on, done")).toContain("toast(done, 'success');");
+      // setRecurringActive clears the busy mark itself; clearing it first
+      // would let a second tap start another stop.
+      expect(d.indexOf("return setRecurringActive(id, false,"))
+        .toBeLessThan(d.lastIndexOf("recurringBusy.delete(id);"));
+    });
+
     it("decides lost answers with the shared re-read helper", () => {
       for (const fn of ["async function saveRecurring(", "async function setRecurringActive(", "async function stopRecurring("]) {
         expect(between(fn, "\n}"), fn).not.toContain("await loadData()");
@@ -481,5 +535,106 @@ describe("repeating expenses: page wiring", () => {
       expect(save).toMatch(/const read = await rereadAndRender\(\{ withRecurring: true \}\);\n[\s\S]*?if \(modalEl !== origin\) \{/);
       expect(save.indexOf("if (modalEl !== origin)")).toBeLessThan(save.indexOf("editing = recurring.find(t => t.id === f.editId) ?? null;\n    if (!editing)"));
     });
+  });
+});
+
+// A lost answer on a write that landed: the retry minted a new id, so it
+// added a second payment, request or expense, and a duplicate payment moves
+// the balances twice. Each form now pins its id until the outcome is known.
+describe("a retried save cannot add a second row", () => {
+  const src = body();
+  const fn = (start) => {
+    const i = src.indexOf(start);
+    expect(i, `${start} not found`).toBeGreaterThan(-1);
+    return src.slice(i, src.indexOf("\n};\n", i));
+  };
+
+  it.each([
+    ["window._submitSettlement = async function", "app_expense_splitter__settlements"],
+    ["window._submitRequest = async function", "app_expense_splitter__reimbursements"],
+    ["window._submitExpense = async function", "app_expense_splitter__expenses"],
+  ])("%s inserts through insertPinned", (start, table) => {
+    const d = fn(start);
+    expect(d).toContain("await insertPinned(origin,");
+    // The row's id comes from the pin, never a fresh one per press.
+    expect(d).not.toMatch(/const (id|expId)\s*=\s*crypto\.randomUUID\(\)/);
+    expect(d.indexOf("insertPinned(")).toBeLessThan(d.indexOf(`INSERT INTO ${table} `));
+  });
+
+  it("pins the id to the open form and reads back on an unknown outcome", () => {
+    const d = fn("async function insertPinned(origin, write, find, same)").replace(/\n}\n[\s\S]*$/, "");
+    expect(d).toContain("if (!holder.insertPin) holder.insertPin = { id: crypto.randomUUID(), now: new Date().toISOString() };");
+    expect(d).toContain("if (!outcomeUnknown(e)) {");
+    // A known refusal after an attempt whose outcome was never settled keeps
+    // the pin and says nothing is known: the earlier attempt may have landed,
+    // and its receipt must not be reclaimed.
+    expect(d).toContain("if (holder.insertPin.unsure) return { outcome: 'failed', error: e, stored: undefined };");
+    expect(d).toContain("holder.insertPin.unsure = !reread;");
+    expect(d.indexOf("if (holder.insertPin.unsure) return")).toBeLessThan(d.indexOf("delete holder.insertPin;\n      return { outcome: 'failed', error: e, stored: false };"));
+    expect(d).toContain("const reread = await rereadAndRender();");
+    // A landed row with other values is an earlier save, not this one.
+    expect(d).toContain("if (!same(stored)) { delete holder.insertPin; return { outcome: 'earlier', id, now }; }");
+  });
+
+  it("does not take an earlier expense for this one when only its split changed", () => {
+    const d = fn("window._submitExpense = async function");
+    expect(d).toContain("&& stored.split_type === splitSource");
+    expect(d).toContain("&& sameAllocations(splits.filter(x => x.expense_id === stored.id), splitResult));");
+  });
+
+  it("reads the payer and category once, so an edit during the save cannot redraw the expense", () => {
+    const d = fn("window._submitExpense = async function");
+    const after = d.slice(d.indexOf("const saved = await insertPinned"));
+    expect(d).toContain("const paidBy       = f.paidBy;");
+    expect(d).toContain("const category     = f.category;");
+    expect(after).not.toMatch(/f\.paidBy|f\.category/);
+    expect(after).toContain("id: expId, paid_by: paidBy, amount_cents: amountCents,");
+  });
+
+  it("reclaims a replacement receipt when the retry finds an earlier save with another", () => {
+    const d = fn("window._submitExpense = async function");
+    const earlier = d.slice(d.indexOf("if (saved.outcome === 'earlier') {"));
+    expect(earlier).toContain("const earlierReceipt = expenses.find(x => x.id === saved.id)?.receipt_file_id ?? null;");
+    expect(earlier).toContain("if (receiptFileId && receiptFileId !== earlierReceipt) reclaimReceipt(receiptFileId);");
+    expect(earlier.indexOf("reclaimReceipt(receiptFileId)")).toBeLessThan(earlier.indexOf("closeModalIfCurrent(origin)"));
+  });
+
+  it("does not delete a receipt whose expense may have been stored", () => {
+    const d = fn("window._submitExpense = async function");
+    expect(d).toContain("if (saved.stored === false && (modalEl !== origin || f.receiptFileId !== receiptFileId)) reclaimReceipt(receiptFileId);");
+    expect(d).toContain("if (origin && saved.stored === false) delete origin.savedReceipt;");
+  });
+
+  it("does not confirm a request twice when an earlier send already did", () => {
+    expect(fn("window._submitRequest = async function"))
+      .toContain("if (!requests.find(x => x.id === id)?.requester_agreed) await agreeOnServer(");
+  });
+});
+
+// A reimbursement request stays out of the shared balance. Paying one wrote a
+// settlement, which showed the member who had just paid as owed the money
+// back, and showed other members, who cannot read the request, a payment for
+// nothing they could see.
+describe("paying a request only closes it", () => {
+  const src = body();
+
+  it("writes no payment row", () => {
+    const i = src.indexOf("async function settleRequest(id, r)");
+    const d = src.slice(i, src.indexOf("\n}\n", i));
+    expect(d).toContain("UPDATE app_expense_splitter__reimbursements SET status = ?, updated_at = ? WHERE id = ? AND status = ?");
+    expect(d).not.toContain("INSERT INTO app_expense_splitter__settlements");
+    // A lost answer is settled by the request's own close time.
+    expect(d).toContain("landed: current?.status === 'settled' && current.updated_at === now,");
+  });
+
+  it("leaves a request's earlier payment out of the balance, and lists confirmed requests apart", () => {
+    expect(src).toContain("const paidRequests = requestPaymentIds(settlements, requests);");
+    expect(src).toContain("balances     = computeBalances(expenses, splits, settlements.filter(x => !paidRequests.has(x.id)));");
+    const i = src.indexOf("function renderBalancesView()");
+    const d = src.slice(i, src.indexOf("\n}\n", i));
+    expect(d).toContain("const owedByRequest = openRequests(requests);");
+    // A confirmed request has no Settle button: its own Record payment is the one way to pay it.
+    const card = src.slice(src.indexOf("function requestDebtCard(r)"), src.indexOf("\n}\n", src.indexOf("function requestDebtCard(r)")));
+    expect(card).not.toContain("openSettle");
   });
 });

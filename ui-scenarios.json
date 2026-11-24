@@ -1640,6 +1640,96 @@
           "selector": "#f-save-btn:disabled"
         }
       ]
+    },
+    {
+      "name": "a confirmed request is listed as owed beside the shared balance, offers no Settle, and paying it clears it without moving the balance",
+      "members": {
+        "requester": "adult",
+        "payer": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursements (id, requester_id, payer_id, amount_cents, note, status, created_at, updated_at) VALUES ('es-ob', ?, ?, 14000, 'Dentist', 'pending', '2026-09-01T09:00:00Z', '2026-09-01T09:00:00Z')",
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__reimbursement_agreements (id, requester_id, payer_id, requester_agreed, payer_agreed, amount_cents, note, status, locked_at, updated_at) VALUES ('es-ob', ?, ?, 1, 1, 14000, 'Dentist', 'locked', '2026-09-02T09:00:00Z', '2026-09-02T09:00:00Z')",
+          "params": [
+            "{{requester}}",
+            "{{payer}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "payer"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-debt\"][data-request-id=\"es-ob\"]",
+          "text": "$140"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-debt\"][data-request-id=\"es-ob\"]",
+          "text": "Dentist"
+        },
+        {
+          "action": "expectCount",
+          "as": "payer",
+          "selector": "[data-testid=\"request-debt\"] .btn-settle",
+          "count": 0
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "#balance-banner",
+          "text": "settled up"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"app-tab\"][data-tab=\"requests\"]"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "[data-testid=\"settle-btn\"][data-request=\"es-ob\"]"
+        },
+        {
+          "action": "click",
+          "as": "payer",
+          "selector": "#conf-yes"
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "[data-testid=\"request-card\"][data-request-id=\"es-ob\"] .badge",
+          "text": "Settled"
+        },
+        {
+          "action": "reload",
+          "as": "payer"
+        },
+        {
+          "action": "expectCount",
+          "as": "payer",
+          "selector": "[data-testid=\"request-debt\"]",
+          "count": 0
+        },
+        {
+          "action": "expectText",
+          "as": "payer",
+          "selector": "#balance-banner",
+          "text": "settled up"
+        }
+      ]
     }
-]
+  ]
 }
