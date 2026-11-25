@@ -1969,6 +1969,67 @@
     "555-0142",
     "everyone"
    ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, voided_at, voided_by_id, void_reason) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT08:00:00Z','now','-3 days'), strftime('%Y-%m-%dT09:00:00Z','now','-2 days'), ?, ?)",
+   "params": [
+    "perf-ex-void-01",
+    "{{partner}}",
+    4599,
+    "Takeout (logged twice)",
+    "food",
+    "{{date:-3}}",
+    "equal",
+    "{{me}}",
+    "Logged twice"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
+   "params": [
+    "perf-sp-void-01a",
+    "perf-ex-void-01",
+    "{{partner}}",
+    2300,
+    "perf-sp-void-01b",
+    "perf-ex-void-01",
+    "{{me}}",
+    2299
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at, voided_at, voided_by_id) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT08:00:00Z','now','-12 days'), strftime('%Y-%m-%dT09:00:00Z','now','-11 days'), ?)",
+   "params": [
+    "perf-ex-void-02",
+    "{{me}}",
+    12000,
+    "Wrong amount",
+    "household",
+    "{{date:-12}}",
+    "equal",
+    "{{me}}"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT10:00:00Z','now','-5 days'), strftime('%Y-%m-%dT10:00:00Z','now','-5 days'))",
+   "params": [
+    "perf-st-mistake",
+    "{{me}}",
+    "{{partner}}",
+    5000,
+    "Settle"
+   ]
+  },
+  {
+   "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at, reverses_id) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT11:00:00Z','now','-5 days'), strftime('%Y-%m-%dT11:00:00Z','now','-5 days'), ?)",
+   "params": [
+    "perf-st-reversal",
+    "{{partner}}",
+    "{{me}}",
+    5000,
+    "Reverses the payment of an earlier day",
+    "perf-st-mistake"
+   ]
   }
  ]
 }

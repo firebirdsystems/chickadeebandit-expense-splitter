@@ -1730,6 +1730,406 @@
           "text": "settled up"
         }
       ]
+    },
+    {
+      "name": "removing an expense takes it out of the balance and the list, Show removed lists it struck through with who removed it and why",
+      "members": {
+        "ana": "adult",
+        "ben": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES ('es-v1', ?, 6000, 'Pizza night', 'food', '2026-11-03', 'equal', '2026-11-03T10:00:00Z')",
+          "params": [
+            "{{ana}}"
+          ]
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES ('es-v1a', 'es-v1', ?, 3000), ('es-v1b', 'es-v1', ?, 3000)",
+          "params": [
+            "{{ana}}",
+            "{{ben}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "#balance-banner",
+          "text": "You're owed"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": ".expense-card[data-expense=\"es-v1\"]"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"remove-expense\"]"
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "[data-testid=\"remove-reason\"]",
+          "value": "Ben paid this one"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"confirm-remove\"]"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": ".expense-card[data-expense=\"es-v1\"]",
+          "count": 0
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "#balance-banner",
+          "text": "settled up"
+        },
+        {
+          "action": "open",
+          "as": "ben"
+        },
+        {
+          "action": "expectText",
+          "as": "ben",
+          "selector": "#balance-banner",
+          "text": "settled up"
+        },
+        {
+          "action": "click",
+          "as": "ben",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "click",
+          "as": "ben",
+          "selector": "[data-testid=\"toggle-removed\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ben",
+          "selector": "[data-testid=\"removed-expense\"][data-expense=\"es-v1\"]"
+        },
+        {
+          "action": "click",
+          "as": "ben",
+          "selector": "[data-testid=\"removed-expense\"][data-expense=\"es-v1\"]"
+        },
+        {
+          "action": "expectVisible",
+          "as": "ben",
+          "selector": "[data-testid=\"removed-detail\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "ben",
+          "selector": ".modal-sheet",
+          "text": "Ben paid this one"
+        }
+      ]
+    },
+    {
+      "name": "a payment recorded by mistake is reversed with one tap, both payments stay listed, and the balance returns to where it was",
+      "members": {
+        "ana": "adult",
+        "ben": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES ('es-p1', ?, ?, 4000, '', '2026-11-07T10:00:00Z', '2026-11-07T10:00:00Z')",
+          "params": [
+            "{{ana}}",
+            "{{ben}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "#balance-banner",
+          "text": "You're owed"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"][data-payment-id=\"es-p1\"] [data-testid=\"reverse-payment\"]"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"confirm-reverse\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "#balance-banner",
+          "text": "settled up"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"]",
+          "count": 2
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"][data-payment-id=\"es-p1\"]",
+          "text": "Reversed"
+        },
+        {
+          "action": "reload",
+          "as": "ana"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"reverse-payment\"]",
+          "count": 0
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"]",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "reversing a payment the other parent reversed a moment ago records nothing and says it was already reversed",
+      "members": {
+        "ana": "adult",
+        "ben": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES ('es-p2', ?, ?, 4000, '', '2026-11-07T10:00:00Z', '2026-11-07T10:00:00Z')",
+          "params": [
+            "{{ana}}",
+            "{{ben}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"][data-payment-id=\"es-p2\"] [data-testid=\"reverse-payment\"]"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at, reverses_id) VALUES ('es-p2r', ?, ?, 4000, 'Reverses the payment of Nov 7, 2026', '2026-11-07T11:00:00Z', '2026-11-07T11:00:00Z', 'es-p2')",
+          "params": [
+            "{{ben}}",
+            "{{ana}}"
+          ]
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"confirm-reverse\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"modal-error\"]",
+          "text": "already reversed"
+        },
+        {
+          "action": "reload",
+          "as": "ana"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"]",
+          "count": 2
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "#balance-banner",
+          "text": "settled up"
+        }
+      ]
+    },
+    {
+      "name": "removing an expense the other parent removed a moment ago keeps their removal and says so",
+      "members": {
+        "ana": "adult",
+        "ben": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES ('es-v2', ?, 6000, 'Pizza night', 'food', '2026-11-03', 'equal', '2026-11-03T10:00:00Z')",
+          "params": [
+            "{{ana}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "#tab-expenses"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": ".expense-card[data-expense=\"es-v2\"]"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"remove-expense\"]"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "UPDATE app_expense_splitter__expenses SET voided_at = '2026-11-04T09:00:00Z', voided_by_id = ?, void_reason = NULL WHERE id = 'es-v2'",
+          "params": [
+            "{{ben}}"
+          ]
+        },
+        {
+          "action": "fill",
+          "as": "ana",
+          "selector": "[data-testid=\"remove-reason\"]",
+          "value": "Mine"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"confirm-remove\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "#toasts",
+          "text": "already removed this expense"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": ".expense-card[data-expense=\"es-v2\"]",
+          "count": 0
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"toggle-removed\"]"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"removed-expense\"][data-expense=\"es-v2\"]"
+        },
+        {
+          "action": "expectNoText",
+          "as": "ana",
+          "selector": ".modal-sheet",
+          "text": "Mine"
+        }
+      ]
+    },
+    {
+      "name": "an old payment beyond the recent ten can still be reversed from the full list",
+      "members": {
+        "ana": "adult",
+        "ben": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES ('es-pp00', ?, ?, 100, '', '2026-10-01T10:00:00Z', '2026-10-01T10:00:00Z'),('es-pp01', ?, ?, 100, '', '2026-10-02T10:00:00Z', '2026-10-02T10:00:00Z'),('es-pp02', ?, ?, 100, '', '2026-10-03T10:00:00Z', '2026-10-03T10:00:00Z'),('es-pp03', ?, ?, 100, '', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z'),('es-pp04', ?, ?, 100, '', '2026-10-05T10:00:00Z', '2026-10-05T10:00:00Z'),('es-pp05', ?, ?, 100, '', '2026-10-06T10:00:00Z', '2026-10-06T10:00:00Z'),('es-pp06', ?, ?, 100, '', '2026-10-07T10:00:00Z', '2026-10-07T10:00:00Z'),('es-pp07', ?, ?, 100, '', '2026-10-08T10:00:00Z', '2026-10-08T10:00:00Z'),('es-pp08', ?, ?, 100, '', '2026-10-09T10:00:00Z', '2026-10-09T10:00:00Z'),('es-pp09', ?, ?, 100, '', '2026-10-10T10:00:00Z', '2026-10-10T10:00:00Z'),('es-pp10', ?, ?, 100, '', '2026-10-11T10:00:00Z', '2026-10-11T10:00:00Z')",
+          "params": [
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}",
+            "{{ana}}",
+            "{{ben}}"
+          ]
+        },
+        {
+          "action": "open",
+          "as": "ana"
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"]",
+          "count": 10
+        },
+        {
+          "action": "expectCount",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"][data-payment-id=\"es-pp00\"]",
+          "count": 0
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"toggle-payments\"]"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"][data-payment-id=\"es-pp00\"] [data-testid=\"reverse-payment\"]"
+        },
+        {
+          "action": "click",
+          "as": "ana",
+          "selector": "[data-testid=\"confirm-reverse\"]"
+        },
+        {
+          "action": "expectText",
+          "as": "ana",
+          "selector": "[data-testid=\"payment-row\"][data-payment-id=\"es-pp00\"]",
+          "text": "Reversed"
+        }
+      ]
     }
   ]
 }

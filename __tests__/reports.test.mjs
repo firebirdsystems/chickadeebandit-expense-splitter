@@ -132,7 +132,7 @@ describe.each(views.map((v) => [v.id, v]))("reports.%s", (id, view) => {
     const start = /:range_start\b/.test(q);
     expect(start).toBe(/:range_end\b/.test(q));
     if (!start) return;
-    const where = /\bWHERE\b([\s\S]*?)(\bORDER\s+BY\b|$)/i.exec(q)?.[1] ?? "";
+    const where = /\bWHERE\b([\s\S]*?)(\bGROUP\s+BY\b|\bORDER\s+BY\b|$)/i.exec(q)?.[1] ?? "";
     for (const clause of where.split(/\bAND\b|\bOR\b/i)) {
       if (!/:range_(start|end)\b/.test(clause)) continue;
       for (const col of columnsIn(clause.replace(/:range_(start|end)\b/g, ""))) {

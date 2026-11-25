@@ -357,7 +357,7 @@ describe('computeBalances', () => {
   it("a payer's own share costs them nothing extra, and each other share moves exactly its amount", () => {
     fc.assert(fc.property(amountArb, membersArb.filter(ids => ids.length > 1), (amount, ids) => {
       const splits = computeSplits(amount, ids, 'equal').map(s => ({ ...s, expense_id: 'e1' }));
-      const balance = computeBalances([{ id: 'e1', paid_by: ids[0] }], splits, []);
+      const balance = computeBalances([{ id: 'e1', paid_by: ids[0], amount_cents: amount }], splits, []);
       expect(balance[ids[0]]).toBe(amount - splits[0].amount_cents);
       splits.slice(1).forEach(s => expect(balance[s.member_id] + 0).toBe(-s.amount_cents + 0));
     }), FC);

@@ -2915,6 +2915,601 @@
           }
         }
       ]
+    },
+    {
+      "name": "in a co-parenting space either parent can remove an expense the other recorded, the row and its shares stay, the first removal stands and can be neither undone nor rewritten, and a child cannot remove one",
+      "context": "shared_space.coparenting",
+      "members": {
+        "mum": "admin",
+        "dad": "admin",
+        "kid": "child"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "ex-v1",
+            "{{mum}}",
+            8000,
+            "Dentist",
+            "health",
+            "2026-11-03",
+            "equal",
+            "2026-11-03T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
+          "params": [
+            "sp-v1",
+            "ex-v1",
+            "{{mum}}",
+            4000,
+            "sp-v2",
+            "ex-v1",
+            "{{dad}}",
+            4000
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "dad",
+          "sql": "UPDATE app_expense_splitter__expenses SET voided_at = ?, voided_by_id = ?, void_reason = ? WHERE id = ? AND voided_at IS NULL",
+          "params": [
+            "2026-11-04T09:00:00Z",
+            "{{dad}}",
+            "Logged twice",
+            "ex-v1"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "SELECT id, voided_at, voided_by_id, void_reason FROM app_expense_splitter__expenses WHERE id = ?",
+          "params": [
+            "ex-v1"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "id": "ex-v1",
+                "voided_at": "2026-11-04T09:00:00Z",
+                "voided_by_id": "scn-dad",
+                "void_reason": "Logged twice"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "SELECT id FROM app_expense_splitter__expense_splits WHERE expense_id = ?",
+          "params": [
+            "ex-v1"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 2
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "UPDATE app_expense_splitter__expenses SET voided_at = ?, voided_by_id = ?, void_reason = ? WHERE id = ? AND voided_at IS NULL",
+          "params": [
+            "2026-11-04T09:05:00Z",
+            "{{mum}}",
+            "Mine now",
+            "ex-v1"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "UPDATE app_expense_splitter__expenses SET voided_at = NULL, voided_by_id = NULL, void_reason = NULL WHERE id = ?",
+          "params": [
+            "ex-v1"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "UPDATE app_expense_splitter__expenses SET void_reason = ?, voided_by_id = ? WHERE id = ?",
+          "params": [
+            "Never removed",
+            "{{mum}}",
+            "ex-v1"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "dad",
+          "sql": "SELECT voided_at, voided_by_id, void_reason FROM app_expense_splitter__expenses WHERE id = ?",
+          "params": [
+            "ex-v1"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "voided_at": "2026-11-04T09:00:00Z",
+                "voided_by_id": "scn-dad",
+                "void_reason": "Logged twice"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "kid",
+          "sql": "UPDATE app_expense_splitter__expenses SET voided_at = ?, voided_by_id = ?, void_reason = ? WHERE id = ? AND voided_at IS NULL",
+          "params": [
+            "2026-11-04T10:00:00Z",
+            "{{kid}}",
+            null,
+            "ex-v1"
+          ],
+          "expect": {
+            "status": 403
+          }
+        }
+      ]
+    },
+    {
+      "name": "what was recorded cannot be rewritten in place: an adult can change neither an expense's terms, nor a share, nor a payment, and cannot upsert or replace around the lock",
+      "members": {
+        "ana": "adult",
+        "ben": "adult"
+      },
+      "steps": [
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES ('ex-l1', 'scn-ana', 6000, 'Groceries', 'food', '2026-11-05', 'equal', '2026-11-05T10:00:00Z')"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES ('sp-l1', 'ex-l1', 'scn-ben', 3000)"
+        },
+        {
+          "action": "seedRaw",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES ('st-l1', 'scn-ben', 'scn-ana', 3000, 'groceries', '2026-11-06T10:00:00Z', '2026-11-06T10:00:00Z')"
+        },
+        {
+          "action": "db",
+          "as": "ben",
+          "sql": "UPDATE app_expense_splitter__expenses SET amount_cents = 0 WHERE id = ?",
+          "params": [
+            "ex-l1"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ben",
+          "sql": "UPDATE app_expense_splitter__expenses SET description = ?, paid_by = ? WHERE id = ?",
+          "params": [
+            "Nothing",
+            "{{ben}}",
+            "ex-l1"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ben",
+          "sql": "UPDATE app_expense_splitter__expenses SET id = ? WHERE id = ?",
+          "params": [
+            "ex-gone",
+            "ex-l1"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ben",
+          "sql": "UPDATE app_expense_splitter__expense_splits SET amount_cents = 0 WHERE id = ?",
+          "params": [
+            "sp-l1"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ben",
+          "sql": "UPDATE app_expense_splitter__expense_splits SET member_id = ? WHERE id = ?",
+          "params": [
+            "{{ana}}",
+            "sp-l1"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "UPDATE app_expense_splitter__settlements SET amount_cents = 30000 WHERE id = ?",
+          "params": [
+            "st-l1"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "UPDATE app_expense_splitter__settlements SET from_id = ?, to_id = ? WHERE id = ?",
+          "params": [
+            "{{ana}}",
+            "{{ben}}",
+            "st-l1"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ben",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET amount_cents = excluded.amount_cents",
+          "params": [
+            "ex-l1",
+            "{{ana}}",
+            1,
+            "Groceries",
+            "food",
+            "2026-11-05",
+            "equal",
+            "2026-11-05T10:00:00Z"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ben",
+          "sql": "INSERT OR REPLACE INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "st-l1",
+            "{{ben}}",
+            "{{ana}}",
+            300000,
+            "groceries",
+            "2026-11-06T10:00:00Z",
+            "2026-11-06T10:00:00Z"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "SELECT amount_cents, description, paid_by FROM app_expense_splitter__expenses WHERE id = ?",
+          "params": [
+            "ex-l1"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1,
+            "rowsContain": [
+              {
+                "amount_cents": 6000,
+                "description": "Groceries"
+              }
+            ]
+          }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "SELECT amount_cents, member_id FROM app_expense_splitter__expense_splits WHERE id = ?",
+          "params": [
+            "sp-l1"
+          ],
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "amount_cents": 3000 }] }
+        },
+        {
+          "action": "db",
+          "as": "ana",
+          "sql": "SELECT amount_cents FROM app_expense_splitter__settlements WHERE id = ?",
+          "params": [
+            "st-l1"
+          ],
+          "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "amount_cents": 3000 }] }
+        }
+      ]
+    },
+    {
+      "name": "in a co-parenting space a payment recorded by mistake is answered by a reversal naming it, both payments stay, a row naming it that does not match cannot take its place, and a second reversal is refused",
+      "context": "shared_space.coparenting",
+      "members": {
+        "mum": "admin",
+        "dad": "admin"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "st-r1",
+            "{{mum}}",
+            "{{dad}}",
+            20000,
+            "",
+            "2026-11-07T10:00:00Z",
+            "2026-11-07T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at, reverses_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "st-rb",
+            "{{mum}}",
+            "{{dad}}",
+            1,
+            "",
+            "2026-11-07T11:00:00Z",
+            "2026-11-07T11:00:00Z",
+            "st-r1"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "dad",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at, reverses_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "st-r2",
+            "{{dad}}",
+            "{{mum}}",
+            20000,
+            "Reverses the payment of Nov 7, 2026",
+            "2026-11-07T12:00:00Z",
+            "2026-11-07T12:00:00Z",
+            "st-r1"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at, reverses_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "st-r3",
+            "{{dad}}",
+            "{{mum}}",
+            20000,
+            "Reverses the payment of Nov 7, 2026",
+            "2026-11-07T12:00:01Z",
+            "2026-11-07T12:00:01Z",
+            "st-r1"
+          ],
+          "expect": {
+            "status": 400,
+            "errorIncludes": "UNIQUE"
+          }
+        },
+        {
+          "action": "db",
+          "as": "dad",
+          "sql": "UPDATE app_expense_splitter__settlements SET reverses_id = NULL WHERE id = ?",
+          "params": [
+            "st-r2"
+          ],
+          "expect": {
+            "status": 403
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "SELECT id, reverses_id FROM app_expense_splitter__settlements ORDER BY settled_at",
+          "expect": {
+            "status": 200,
+            "rowCount": 3,
+            "rowsContain": [
+              {
+                "id": "st-r1"
+              },
+              {
+                "id": "st-r2",
+                "reverses_id": "st-r1"
+              },
+              {
+                "id": "st-rb",
+                "reverses_id": "st-r1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "in a co-parenting space a removal needs a real time and a remover, a parent is in an expense's split once, and an amount stored as text moves no money in the balance the AI reads",
+      "context": "shared_space.coparenting",
+      "members": {
+        "mum": "admin",
+        "dad": "admin"
+      },
+      "steps": [
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "INSERT INTO app_expense_splitter__expenses (id, paid_by, amount_cents, description, category, date, split_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "e-h1",
+            "{{mum}}",
+            10000,
+            "School shoes",
+            "kids",
+            "2026-11-10",
+            "equal",
+            "2026-11-10T09:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
+          "params": [
+            "sp-h1",
+            "e-h1",
+            "{{mum}}",
+            5000,
+            "sp-h2",
+            "e-h1",
+            "{{dad}}",
+            5000
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "_comment": "A blank removal time would hide the removal from the export while SQL treats the expense as removed.",
+          "action": "db",
+          "as": "dad",
+          "sql": "UPDATE app_expense_splitter__expenses SET voided_at = ?, voided_by_id = ? WHERE id = ?",
+          "params": [
+            "",
+            "{{dad}}",
+            "e-h1"
+          ],
+          "expect": {
+            "status": 400,
+            "errorIncludes": "CHECK"
+          }
+        },
+        {
+          "_comment": "A live expense cannot name a remover.",
+          "action": "db",
+          "as": "dad",
+          "sql": "UPDATE app_expense_splitter__expenses SET voided_by_id = ? WHERE id = ?",
+          "params": [
+            "{{mum}}",
+            "e-h1"
+          ],
+          "expect": {
+            "status": 400,
+            "errorIncludes": "CHECK"
+          }
+        },
+        {
+          "_comment": "A second share for the same parent would raise what they owe.",
+          "action": "db",
+          "as": "mum",
+          "sql": "INSERT INTO app_expense_splitter__expense_splits (id, expense_id, member_id, amount_cents) VALUES (?, ?, ?, ?)",
+          "params": [
+            "sp-h3",
+            "e-h1",
+            "{{dad}}",
+            5000
+          ],
+          "expect": {
+            "status": 400,
+            "errorIncludes": "UNIQUE"
+          }
+        },
+        {
+          "_comment": "SQLite keeps '0x1388' as TEXT in an INTEGER column; it must count as nothing, not 5000.",
+          "action": "db",
+          "as": "dad",
+          "sql": "INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "params": [
+            "st-h1",
+            "{{dad}}",
+            "{{mum}}",
+            "0x1388",
+            "",
+            "2026-11-11T10:00:00Z",
+            "2026-11-11T10:00:00Z"
+          ],
+          "expect": {
+            "status": 200
+          }
+        },
+        {
+          "action": "db",
+          "as": "mum",
+          "sql": "SELECT id, voided_at, voided_by_id FROM app_expense_splitter__expenses WHERE id = ? AND voided_at IS NULL AND voided_by_id IS NULL",
+          "params": [
+            "e-h1"
+          ],
+          "expect": {
+            "status": 200,
+            "rowCount": 1
+          }
+        },
+        {
+          "action": "named",
+          "as": "mum",
+          "kind": "query",
+          "name": "pending_balances",
+          "expect": {
+            "status": 200,
+            "rowCount": 2,
+            "rowsContain": [
+              {
+                "member_id": "scn-mum",
+                "net_cents": 5000
+              },
+              {
+                "member_id": "scn-dad",
+                "net_cents": -5000
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

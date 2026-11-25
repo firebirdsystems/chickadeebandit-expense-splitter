@@ -125,6 +125,19 @@
     .expense-right { text-align: right; flex-shrink: 0; }
     .expense-amount     { font-weight: 800; font-size: 1rem; }
     .expense-cat-label  { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+    .expense-card.voided { opacity: .7; box-shadow: none; }
+    .expense-card.voided .expense-desc,
+    .expense-card.voided .expense-amount { text-decoration: line-through; color: var(--muted); }
+    .removed-tag { font-size: .7rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .removed-toggle { display: block; margin: 8px auto 0; }
+    .payment-row {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px 14px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .payment-main { flex: 1; min-width: 0; font-size: .85rem; }
+    .payment-when { font-size: .74rem; color: var(--muted); margin-top: 2px; }
+    .payment-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
 
     /* ── Avatars ──────────────────────────────────────────── */
     .avatar {
@@ -575,6 +588,8 @@ import {
   scheduleLabel, templateEnded, parseIsoDate, editableCadence, anchorForSave,
   scheduleFormError, isStaleConflict, isDuplicate, postingBatches, MAX_BATCH_STATEMENTS,
   reminderSyncStatement, postedOccurrenceKeys, earliestDueDate, sameTemplateTerms,
+  isVoided, liveExpenses, voidStatement, VOID_REASON_MAX,
+  canReverse, reversalOf, reversalPairs, expenseProblem,
 } from './logic.js';
 
 document.getElementById('header-glyph').innerHTML = glyph('split');
@@ -586,7 +601,7 @@ const ME         = window.__CURRENT_MEMBER ?? { id: 'demo-me', name: 'You', role
 const APP_ID     = window.__APP_ID ?? 'expense-splitter';
 const EVENTS_URL = window.__EVENTS_URL ?? '/api/events';
 // Money management mirrors the adult_writable policy on all three tables:
-// only adults may add or delete expenses and record settlements. Non-adults
+// only adults may add or remove expenses and record settlements. Non-adults
 // still read everything (balances stay accurate for every viewer).
 const IS_ADULT   = ME.role === 'adult';
 const FILES      = createFilesHelper(window.__FILES_URL ?? '');
@@ -627,7 +642,12 @@ const CLICK_ACTIONS = {
   setPaidBy:        el => window._setPaidBy(el.dataset.member),
   setSplitMethod:   el => window._setSplitMethod(el.dataset.method),
   openDetail:       el => window._openDetail(el.dataset.expense),
-  deleteExpense:    el => window._deleteExpense(el.dataset.expense),
+  removeExpense:    el => window._removeExpense(el.dataset.expense),
+  submitRemove:     el => window._submitRemove(el.dataset.expense),
+  toggleRemoved:    () => window._toggleRemoved(),
+  togglePayments:   () => window._togglePayments(),
+  openReverse:      el => window._openReverse(el.dataset.payment),
+  submitReverse:    el => window._submitReverse(el.dataset.payment),
   agreeRequest:     el => window._agreeRequest(el.dataset.request),
   cancelRequest:    el => window._cancelRequest(el.dataset.request),
   settleRequest:    el => window._settleRequest(el.dataset.request),
@@ -672,6 +692,9 @@ let splits       = [];
 let settlements  = [];
 let balances     = {};
 let transactions = [];
+// The payments the balance counts (balancePayments), kept by recompute for the
+// payments list.
+let balancePaymentList = [];
 let categorySplits = [];   // saved per-category default percentages
 let requests       = [];   // reimbursement requests, merged with their agreements
 let paymentHandles = [];   // one row per member: where to send them money
@@ -689,6 +712,8 @@ let recurringPending = true;
 let activeTab      = 'balances';
 let activeCategory = 'all';
 let searchQuery    = '';
+// Removed expenses are listed only when asked for, struck through.
+let showRemoved    = false;
 let searchTimer    = null;
 let summaryPeriod  = 'all';
 // Populated from api/reports, never hard-coded: the endpoint already decides
@@ -900,8 +925,8 @@ function recompute() {
   // Only the request's two parties can see it, so a member outside it still
   // counts an old request payment. Accepted: fixing that means rewriting
   // stored payments, and old data is left as it is.
-  const paidRequests = requestPaymentIds(settlements, requests);
-  balances     = computeBalances(expenses, splits, settlements.filter(x => !paidRequests.has(x.id)));
+  balancePaymentList = balancePayments();
+  balances     = computeBalances(expenses, splits, balancePaymentList);
   transactions = simplifyDebts(balances);
 }
 
@@ -964,13 +989,18 @@ window._switchTab = function(tab) {
 /* ── Category filter ─────────────────────────────────── */
 function renderCatFilter() {
   const counts = {};
-  expenses.forEach(e => { counts[e.category] = (counts[e.category] ?? 0) + 1; });
+  shownExpenses().forEach(e => { counts[e.category] = (counts[e.category] ?? 0) + 1; });
   const used = CATEGORIES.filter(c => counts[c.id]);
+  // A category the list no longer has an expense for (its last one was just
+  // removed, or removed ones were hidden) would filter to nothing, with no
+  // pill left to clear it: fall back to All.
+  if (activeCategory !== 'all' && !counts[activeCategory]) activeCategory = 'all';
+  const active = (cat) => cat === activeCategory ? ' active' : '';
 
   document.getElementById('cat-filter').innerHTML =
-    `<button class="cat-pill active" data-action="filterCat" data-cat="all">All</button>` +
+    `<button class="cat-pill${active('all')}" data-action="filterCat" data-cat="all">All</button>` +
     used.map(c =>
-      `<button class="cat-pill" data-action="filterCat" data-cat="${esc(c.id)}">${glyph(c.glyph, { accent: "currentColor" })} ${esc(c.label)}</button>`
+      `<button class="cat-pill${active(c.id)}" data-action="filterCat" data-cat="${esc(c.id)}">${glyph(c.glyph, { accent: "currentColor" })} ${esc(c.label)}</button>`
     ).join('');
 }
 
@@ -994,9 +1024,10 @@ function renderAll() {
   renderHeaderSub();
   renderBalanceBanner();
   renderBalancesView();
+  // The filter first: it may fall back to All, which the list then reads.
+  renderCatFilter();
   renderExpensesView();
   renderRecurring();
-  renderCatFilter();
   renderSummary();
   renderRequests();
 }
@@ -1010,10 +1041,13 @@ function renderAll() {
 function renderPeriodOptions() {
   const sel = document.getElementById('summary-period');
   if (!sel) return;
-  const years  = [...new Set(expenseMonths(expenses).map(k => k.slice(0, 4)))];
+  // Removed expenses are in no period (summarize leaves them out), so they
+  // offer no period of their own either.
+  const months = expenseMonths(liveExpenses(expenses));
+  const years  = [...new Set(months.map(k => k.slice(0, 4)))];
   const opts   = [{ value: 'all', label: 'All time' }]
     .concat(years.map(y => ({ value: `year:${y}`, label: y })))
-    .concat(expenseMonths(expenses).map(k => ({ value: `month:${k}`, label: monthLabel(k) })));
+    .concat(months.map(k => ({ value: `month:${k}`, label: monthLabel(k) })));
   // A period that no longer has any expenses behind it (the last one was just
   // deleted) would otherwise leave the select showing a value it has no option
   // for, which renders as blank rather than as the all-time view it falls back
@@ -1041,7 +1075,7 @@ function renderSummary() {
       <div class="empty-state">
         <div class="empty-icon">${chickadee("nest", { size: 72 })}</div>
         <div class="empty-title">Nothing spent yet</div>
-        <div class="empty-sub">${expenses.length === 0
+        <div class="empty-sub">${liveExpenses(expenses).length === 0
           ? 'Add an expense and its totals show up here.'
           : 'No expenses in this period.'}</div>
       </div>`;
@@ -1295,7 +1329,7 @@ async function agreeOnServer(id, agreed, terms) {
 }
 
 function renderHeaderSub() {
-  const count = expenses.length;
+  const count = liveExpenses(expenses).length;
   document.getElementById('header-sub').textContent =
     count === 0 ? 'No expenses yet' : `${count} expense${count === 1 ? '' : 's'}`;
 }
@@ -1329,8 +1363,9 @@ function renderBalancesView() {
   const requestsHtml = owedByRequest.length
     ? `<div class="section-label">Confirmed requests</div>${owedByRequest.map(requestDebtCard).join('')}`
     : '';
+  const paymentsHtml = recentPaymentsHtml();
   if (transactions.length === 0 && owedByRequest.length) {
-    el.innerHTML = requestsHtml;
+    el.innerHTML = requestsHtml + paymentsHtml;
     return;
   }
   if (transactions.length === 0) {
@@ -1339,7 +1374,7 @@ function renderBalancesView() {
         <div class="empty-icon">${chickadee("celebrating", { size: 72 })}</div>
         <div class="empty-title">All settled up!</div>
         <div class="empty-sub">Add an expense to start tracking.</div>
-      </div>`;
+      </div>${paymentsHtml}`;
     return;
   }
 
@@ -1349,8 +1384,171 @@ function renderBalancesView() {
   let html = '';
   if (mine.length)  html += `<div class="section-label">Your balances</div>${mine.map(debtCard).join('')}`;
   if (other.length) html += `<div class="section-label">Others</div>${other.map(debtCard).join('')}`;
-  el.innerHTML = html + requestsHtml;
+  el.innerHTML = html + requestsHtml + paymentsHtml;
 }
+
+// The payments recorded through Settle, newest first. A payment is never
+// deleted or edited: one recorded by mistake is answered by a reversal, the
+// same amount the other way, and both stay listed. Payments an earlier version
+// recorded for a reimbursement request are left out, as they are of the
+// balance (requestPaymentIds).
+const RECENT_PAYMENTS = 10;
+function balancePayments() {
+  const paidRequests = requestPaymentIds(settlements, requests);
+  return settlements.filter(x => !paidRequests.has(x.id));
+}
+
+// The newest ten, and every one on request: an old mistake can be reversed too.
+let showAllPayments = false;
+function recentPaymentsHtml() {
+  const all = balancePaymentList;
+  if (all.length === 0) return '';
+  const list = showAllPayments ? all : all.slice(0, RECENT_PAYMENTS);
+  // Built once for the list, not once per row: rebuilt per row, the full list
+  // costs quadratic time.
+  const pairs = reversalPairs(settlements);
+  const counted = new Set(all.map(x => x.id));
+  const more = all.length > RECENT_PAYMENTS
+    ? `<button class="btn btn-ghost btn-sm removed-toggle" data-action="togglePayments" data-testid="toggle-payments">${
+        showAllPayments ? 'Show recent payments' : `Show all payments (${all.length})`}</button>`
+    : '';
+  return `<div class="section-label">${showAllPayments ? 'Payments' : 'Recent payments'}</div>${list.map(p => paymentRow(p, pairs, counted)).join('')}${more}`;
+}
+window._togglePayments = function() {
+  showAllPayments = !showAllPayments;
+  renderBalancesView();
+};
+
+function paymentRow(p, pairs, counted) {
+  const from = memberMap.get(p.from_id) ?? { id: p.from_id, name: p.from_id, role: 'adult' };
+  const to   = memberMap.get(p.to_id)   ?? { id: p.to_id,   name: p.to_id,   role: 'adult' };
+  const party = p.from_id === ME.id || p.to_id === ME.id;
+  const tag = pairs.reversals.has(p.id) ? `<span class="removed-tag">Reversal</span>`
+            : pairs.reversed.has(p.id)  ? `<span class="removed-tag">Reversed</span>` : '';
+  const reverseBtn = IS_ADULT && party && reversible(p, pairs, counted)
+    ? `<button class="btn btn-ghost btn-sm" data-action="openReverse" data-payment="${esc(p.id)}" data-testid="reverse-payment">Reverse</button>`
+    : '';
+  return `
+    <div class="payment-row" data-testid="payment-row" data-payment-id="${esc(p.id)}">
+      ${avatar(from, 'sm')}<span class="debt-arrow">→</span>${avatar(to, 'sm')}
+      <div class="payment-main">
+        <div><strong>${esc(from.name)}</strong> paid <strong>${esc(to.name)}</strong></div>
+        <div class="payment-when">${esc(fmtWhen(p.settled_at))}${p.note ? ` · ${esc(p.note)}` : ''}</div>
+      </div>
+      <div class="payment-right">
+        <span class="debt-amount">${fmtMoney(p.amount_cents)}</span>
+        ${tag}${reverseBtn}
+      </div>
+    </div>`;
+}
+
+// The household day the payment fell on, as the reversal's stored note names
+// it: the device's own calendar would name another day for a parent in another
+// time zone. Built from parts, so the label is that day everywhere.
+function paymentDateLabel(p) {
+  const day = hubToday(p.settled_at);
+  if (!day) return String(p.settled_at ?? '');
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Whether this page may offer to reverse a payment. Besides canReverse: the
+// reimbursement requests must be loaded, and the payment must be one the
+// balance counts. A payment an earlier version recorded for a request is left
+// out of the balance only once the requests are read; reversed while they
+// were unread, its reversal would count with nothing to cancel.
+// `pairs` and `counted` (ids of the payments the balance counts) let the list
+// build them once.
+function reversible(p, pairs = reversalPairs(settlements), counted = new Set(balancePayments().map(x => x.id))) {
+  return !requestsFailed && canReverse(p, settlements, pairs) && counted.has(p.id);
+}
+
+window._openReverse = function(paymentId) {
+  const p = settlements.find(x => x.id === paymentId);
+  if (!p || !reversible(p)) return;
+  const r = reversalOf(p, paymentDateLabel(p));
+  const from = memberMap.get(r.from_id) ?? { id: r.from_id, name: r.from_id, role: 'adult' };
+  const to   = memberMap.get(r.to_id)   ?? { id: r.to_id,   name: r.to_id,   role: 'adult' };
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Reverse this payment?</span>
+      <button class="modal-close" data-action="closeModal">×</button>
+    </div>
+    <div class="modal-body" style="text-align:center;padding:24px 20px">
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
+        ${avatar(from)}<span style="font-size:1.3rem">→</span>${avatar(to)}
+      </div>
+      <div style="font-size:1.2rem;font-weight:800;margin-bottom:8px">${fmtMoney(r.amount_cents)}</div>
+      <p class="hint">Records <strong>${esc(from.name)}</strong> paying <strong>${esc(to.name)}</strong> back, which cancels the
+        payment of ${esc(paymentDateLabel(p))}. Both payments stay in the record.</p>
+    </div>
+    <div class="split-remaining bad" data-form-error data-testid="modal-error" role="alert" style="text-align:left;padding:0 20px 10px" hidden></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" data-action="submitReverse" data-payment="${esc(p.id)}" data-testid="confirm-reverse">Reverse payment</button>
+    </div>
+  `);
+};
+
+window._submitReverse = async function(paymentId) {
+  const origin = modalEl;
+  if (origin?.dataset.saving === '1') return;
+  const p = settlements.find(x => x.id === paymentId);
+  if (!p) return;
+  const btn = origin?.querySelector('[data-action="submitReverse"]');
+  // A re-read since the form opened may have failed to load the requests, or
+  // shown the payment to be one a request recorded (see reversible).
+  if (requestsFailed || !balancePayments().some(x => x.id === p.id)) {
+    saveFailed(origin, btn, 'Reverse payment', requestsFailed
+      ? 'Couldn’t load reimbursement requests, so this payment can’t be reversed right now. Try again in a moment.'
+      : 'This payment paid a reimbursement request, so it isn’t reversed here.');
+    return;
+  }
+  // The other parent may have reversed it since this form opened (a re-read
+  // landed meanwhile). Unless this form's own earlier attempt, still
+  // unaccounted for, is that reversal.
+  if (!canReverse(p, settlements) && !origin?.insertPin?.unsure) {
+    saveFailed(origin, btn, 'Reverse payment', 'This payment was already reversed.');
+    return;
+  }
+  const r = reversalOf(p, paymentDateLabel(p));
+  if (origin) origin.dataset.saving = '1';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  let saved = await insertPinned(origin,
+    (id, now) => db(
+      'INSERT INTO app_expense_splitter__settlements (id, from_id, to_id, amount_cents, note, settled_at, created_at, reverses_id) VALUES (?,?,?,?,?,?,?,?)',
+      [id, r.from_id, r.to_id, r.amount_cents, r.note, now, now, r.reverses_id]),
+    (id) => settlements.find(x => x.id === id),
+    (stored) => stored.reverses_id === r.reverses_id);
+  // A retry after an unaccounted-for attempt meets its own row: that earlier
+  // attempt is this reversal, so it landed.
+  const pin = origin?.insertPin;
+  if (saved.outcome === 'failed' && pin && settlements.some(x => x.id === pin.id)) {
+    delete origin.insertPin;
+    saved = { outcome: 'landed', id: pin.id, now: pin.now };
+  }
+  if (saved.outcome === 'failed') {
+    if (saved.error) console.error('submitReverse failed', saved.error);
+    // A second reversal collides on the unique index; insertPinned has
+    // re-read by then, so the reversal that stands is in the list.
+    const already = !canReverse(p, settlements);
+    const line = already
+      ? 'This payment was already reversed.'
+      : failureLine(saved.error, { action: 'reverse the payment', thing: 'payment' });
+    saveFailed(origin, btn, 'Reverse payment', line);
+    return;
+  }
+  closeModalIfCurrent(origin);
+  const { id, now } = saved;
+  if (!settlements.some(x => x.id === id)) {
+    settlements = [{ id, ...r, settled_at: now, created_at: now }, ...settlements];
+  }
+  recompute();
+  renderAll();
+  toast('Payment reversed', 'success');
+  logActivity('finance_transaction_added',
+    `${memberName(r.from_id)} paid ${memberName(r.to_id)} ${fmtMoney(r.amount_cents)} back (reversal)`, {});
+};
 
 function requestDebtCard(r) {
   const from = memberMap.get(r.payer_id)     ?? { id: r.payer_id,     name: r.payer_id,     role: 'adult' };
@@ -1405,10 +1603,24 @@ function debtCard(t) {
 }
 
 /* ── Expenses view ───────────────────────────────────── */
+// The expenses the list shows: the live ones, plus the removed ones when the
+// member has asked to see them.
+function shownExpenses() {
+  return showRemoved ? expenses : liveExpenses(expenses);
+}
+
 function renderExpensesView() {
-  let list = expenses;
+  const live = liveExpenses(expenses);
+  let list = shownExpenses();
   if (activeCategory !== 'all') list = list.filter(e => e.category === activeCategory);
   if (searchQuery)               list = list.filter(e => searchMatch(searchQuery, searchableFields(e)));
+
+  const removedCount = expenses.length - live.length;
+  const toggle = removedCount === 0 ? '' : `
+    <button class="btn btn-ghost btn-sm removed-toggle" data-action="toggleRemoved"
+            data-testid="toggle-removed" aria-pressed="${showRemoved ? 'true' : 'false'}">
+      ${showRemoved ? 'Hide removed' : `Show removed (${removedCount})`}
+    </button>`;
 
   const el = document.getElementById('expense-list');
   if (list.length === 0) {
@@ -1416,20 +1628,34 @@ function renderExpensesView() {
       <div class="empty-state">
         <div class="empty-icon">${chickadee("nest", { size: 72 })}</div>
         <div class="empty-title">No expenses found</div>
-        <div class="empty-sub">${expenses.length === 0 ? 'Tap + Add to record your first expense.' : 'Try a different filter.'}</div>
-      </div>`;
+        <div class="empty-sub">${live.length === 0 && !showRemoved ? 'Tap + Add to record your first expense.' : 'Try a different filter.'}</div>
+      </div>${toggle}`;
     return;
   }
-  el.innerHTML = list.map((exp, i) => expenseCard(exp, i)).join('');
+  // Grouped once for the list, not scanned once per card.
+  const byExpense = new Map();
+  for (const s of splits) {
+    const rows = byExpense.get(s.expense_id);
+    if (rows) rows.push(s); else byExpense.set(s.expense_id, [s]);
+  }
+  el.innerHTML = list.map((exp, i) => expenseCard(exp, i, byExpense.get(exp.id) ?? [])).join('') + toggle;
 }
 
-function expenseCard(exp, i) {
+window._toggleRemoved = function() {
+  showRemoved = !showRemoved;
+  renderCatFilter();
+  renderExpensesView();
+};
+
+function expenseCard(exp, i, expSplits) {
   const paidBy = memberMap.get(exp.paid_by) ?? { id: exp.paid_by, name: exp.paid_by, role: 'adult' };
   const cat    = categoryFor(exp.category);
   const delay  = Math.min(i * 25, 120);
+  const voided = isVoided(exp);
+  const problem = expenseProblem(exp, expSplits);
   return `
-    <div class="expense-card" style="animation-delay:${delay}ms"
-         data-action="openDetail" data-expense="${esc(exp.id)}">
+    <div class="expense-card${voided ? ' voided' : ''}" style="animation-delay:${delay}ms"
+         data-action="openDetail" data-expense="${esc(exp.id)}"${voided ? ' data-testid="removed-expense"' : ''}>
       <div class="expense-icon">${glyph(cat.glyph)}</div>
       <div class="expense-main">
         <div class="expense-desc">${esc(exp.description)}</div>
@@ -1439,6 +1665,8 @@ function expenseCard(exp, i) {
           <span>·</span>
           <span>${fmtDate(exp.date)}</span>
           ${exp.recurring_id ? `<span>·</span><span data-testid="repeat-marker" title="Added by a repeating expense">${glyph('repeat')}</span>` : ''}
+          ${voided ? `<span>·</span><span class="removed-tag">Removed</span>` : ''}
+          ${problem ? `<span>·</span><span class="removed-tag" data-testid="expense-problem" title="${esc(problem)}">Check shares</span>` : ''}
         </div>
       </div>
       <div class="expense-right">
@@ -2884,6 +3112,8 @@ function openDetailModal(expId) {
   const paidBy    = memberMap.get(exp.paid_by) ?? { id: exp.paid_by, name: exp.paid_by, role: 'adult' };
   const cat       = categoryFor(exp.category);
   const expSplits = splits.filter(s => s.expense_id === expId);
+  const voided    = isVoided(exp);
+  const problem   = expenseProblem(exp, expSplits);
 
   openModal(`
     <div class="modal-header">
@@ -2915,6 +3145,18 @@ function openDetailModal(expId) {
         <span class="detail-key">Repeats</span>
         <span class="detail-val">${esc(recurringOrigin(exp))}</span>
       </div>` : ''}
+      ${voided ? `
+      <div class="detail-row" data-testid="removed-detail">
+        <span class="detail-key">Removed</span>
+        <span class="detail-val">${esc(fmtWhen(exp.voided_at))} by ${esc(memberName(exp.voided_by_id))}</span>
+      </div>
+      ${exp.void_reason ? `
+      <div class="detail-row">
+        <span class="detail-key">Why</span>
+        <span class="detail-val">${esc(exp.void_reason)}</span>
+      </div>` : ''}
+      <p class="hint" style="margin-top:8px">A removed expense stays in the record and the export, and no longer counts toward balances.</p>` : ''}
+      ${problem ? `<p class="hint" style="margin-top:8px" data-testid="expense-problem-detail">${esc(problem)}</p>` : ''}
 
       ${exp.receipt_file_id ? `
         <div class="section-label" style="margin-top:16px">Receipt</div>
@@ -2937,48 +3179,114 @@ function openDetailModal(expId) {
       ` : ''}
     </div>
     <div class="modal-footer">
-      ${IS_ADULT ? `<button class="btn btn-danger" data-action="deleteExpense" data-expense="${esc(expId)}">Delete</button>` : ''}
+      ${!IS_ADULT || voided ? ''
+        : `<button class="btn btn-danger" data-action="removeExpense" data-expense="${esc(expId)}" data-testid="remove-expense">Remove</button>`}
       <button class="btn btn-ghost"  data-action="closeModal">Close</button>
     </div>
   `);
 }
 
-window._deleteExpense = async function(expId) {
-  const confirmed = await hubConfirm('Delete this expense? This cannot be undone.');
-  if (!confirmed) return;
+// A stored ISO timestamp as the member's local date and time (or what `opts` asks for).
+function fmtWhen(iso, opts = { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso ?? '') : d.toLocaleString(undefined, opts);
+}
 
-  const removedExp    = expenses.find(e => e.id === expId);
-  const removedSplits = splits.filter(s => s.expense_id === expId);
-
-  // Optimistic remove
-  expenses = expenses.filter(e => e.id !== expId);
-  splits   = splits.filter(s => s.expense_id !== expId);
-  recompute();
-  closeModal();
-  renderAll();
-
-  try {
-    // One statement: manifest.delete_cascades removes the expense's splits in
-    // the same transaction. As two calls, splits died FIRST — so a failure in
-    // between left an expense nobody owed a share of (computeBalances contributes
-    // nothing for an expense with no splits) and destroyed the detail needed to
-    // rebuild it, while the catch below rolled back only the in-memory copy.
-    await db('DELETE FROM app_expense_splitter__expenses WHERE id = ?', [expId]);
-    // Only after the row is gone — a failed delete must not strand the row
-    // pointing at a file that no longer exists. The receipt hangs off the
-    // expense itself, so it is the client's to reclaim; the cascade covers
-    // child-owned files only.
-    if (removedExp?.receipt_file_id) FILES.delete(removedExp.receipt_file_id).catch(() => {});
-  } catch (e) {
-    // Roll back
-    if (removedExp)    expenses = [removedExp, ...expenses];
-    if (removedSplits) splits   = [...splits, ...removedSplits];
-    recompute();
-    renderAll();
-    console.error('deleteExpense failed', e);
-    toast(failureLine(e, { action: 'delete the expense', thing: 'expense' }), 'error');
-  }
+// An expense is never deleted. Remove stamps who, when and why in one UPDATE;
+// the row, its splits and its receipt stay, the export lists it, and balances
+// leave it out. Removing is final: a mistake is answered by adding it again.
+window._removeExpense = function(expId) {
+  const exp = expenses.find(e => e.id === expId);
+  if (!exp) return;
+  openModal(`
+    <div class="modal-header">
+      <span class="modal-title">Remove this expense?</span>
+      <button class="modal-close" data-action="closeModal">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="hint" style="margin-bottom:12px">“${esc(exp.description)}” (${fmtMoney(exp.amount_cents)}) stops counting toward
+        balances. It stays in the record, with who removed it and why. Removing can't be undone:
+        to correct an expense, or if this was a mistake, add it again.</p>
+      <label class="field"><span>Why (optional)</span>
+        <input type="text" id="v-reason" maxlength="${VOID_REASON_MAX}" autocomplete="off" data-testid="remove-reason">
+      </label>
+    </div>
+    <div class="split-remaining bad" data-form-error data-testid="modal-error" role="alert" style="text-align:left;padding:0 20px 10px" hidden></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+      <button class="btn btn-danger" data-action="submitRemove" data-expense="${esc(expId)}" data-testid="confirm-remove">Remove</button>
+    </div>
+  `);
 };
+
+window._submitRemove = async function(expId) {
+  const origin = modalEl;
+  if (origin?.dataset.saving === '1') return;
+  const reason = document.getElementById('v-reason')?.value ?? '';
+  const btn = origin?.querySelector('[data-action="submitRemove"]');
+  if (origin) origin.dataset.saving = '1';
+  if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
+  // The stamp is pinned to this form: a retry after a lost answer sends the
+  // same one, so a re-read that finds it knows the earlier attempt landed.
+  const at = origin?.dataset.voidAt || new Date().toISOString();
+  if (origin) origin.dataset.voidAt = at;
+  const stmt = voidStatement(expId, ME.id, reason, at);
+  let changed;
+  let lost = null;   // the error of an answer lost on the way back
+  try {
+    ({ changed } = await db(stmt.sql, stmt.params));
+  } catch (e) {
+    console.error('removeExpense failed', e);
+    // A refusal settles this attempt: the next press is a new removal, stamped
+    // when it is made.
+    if (!outcomeUnknown(e)) {
+      if (origin) delete origin.dataset.voidAt;
+      saveFailed(origin, btn, 'Remove', failureLine(e, { action: 'remove the expense', thing: 'expense' }));
+      return;
+    }
+    lost = e;
+  }
+  if (lost || Number(changed) === 0) {
+    // An answer lost on the way back, or a guarded UPDATE that changed nothing
+    // (the expense is gone or already removed). The re-read says which, and
+    // whether the removal that stands is this one (a retry of an attempt whose
+    // answer was lost), so a form dismissed now does not leave the list wrong.
+    const reread = await rereadAndRender();
+    const stored = reread ? expenses.find(e => e.id === expId) : undefined;
+    // Someone else's removal already stands: what was asked for is done, and
+    // theirs is the who-and-why the record keeps. One by this member under an
+    // earlier stamp is an attempt whose answer was lost before a refusal
+    // cleared the stamp: it landed.
+    if (stored && isVoided(stored) && stored.voided_at !== at && stored.voided_by_id !== ME.id) {
+      closeModalIfCurrent(origin);
+      toast(`${memberName(stored.voided_by_id)} already removed this expense`, 'info');
+      return;
+    }
+    if (!isVoided(stored)) {
+      saveFailed(origin, btn, 'Remove', failureLine(lost, {
+        action: 'remove the expense', thing: 'expense', found: !lost && reread ? !!stored : undefined,
+      }));
+      return;
+    }
+    // This member's earlier attempt landed; it carries the reason typed then.
+    closeModalIfCurrent(origin);
+    removedAsFirstEntered(stored, stmt.params[2]);
+    return;
+  }
+  expenses = expenses.map(e => e.id === expId
+    ? { ...e, voided_at: at, voided_by_id: ME.id, void_reason: stmt.params[2] } : e);
+  recompute();
+  renderAll();
+  closeModalIfCurrent(origin);
+  toast('Expense removed', 'success');
+};
+
+// A retry found its own earlier removal stored. A reason edited since then was
+// not written: say so rather than drop it silently.
+function removedAsFirstEntered(stored, reason) {
+  if ((stored.void_reason ?? null) === reason) toast('Expense removed', 'success');
+  else toast('Removed with the reason first entered.', 'info');
+}
 
 async function hubConfirm(msg, okLabel = 'Delete', { noLabel = 'Cancel', okClass = 'btn-danger' } = {}) {
   return new Promise(resolve => {

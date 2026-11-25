@@ -629,7 +629,9 @@ describe("paying a request only closes it", () => {
 
   it("leaves a request's earlier payment out of the balance, and lists confirmed requests apart", () => {
     expect(src).toContain("const paidRequests = requestPaymentIds(settlements, requests);");
-    expect(src).toContain("balances     = computeBalances(expenses, splits, settlements.filter(x => !paidRequests.has(x.id)));");
+    expect(src).toContain("return settlements.filter(x => !paidRequests.has(x.id));");
+    expect(src).toContain("balancePaymentList = balancePayments();");
+    expect(src).toContain("balances     = computeBalances(expenses, splits, balancePaymentList);");
     const i = src.indexOf("function renderBalancesView()");
     const d = src.slice(i, src.indexOf("\n}\n", i));
     expect(d).toContain("const owedByRequest = openRequests(requests);");

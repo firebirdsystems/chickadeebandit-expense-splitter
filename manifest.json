@@ -51,15 +51,48 @@
   "row_policies": {
     "expenses": {
       "kind": "adult_writable",
-      "audit_writes": true
+      "audit_writes": true,
+      "kept_in_record_mode": true,
+      "frozen_when": { "status_column": "voided_at", "locked_when_not_null": true },
+      "column_write_acls": {
+        "id": { "writable_by": [], "actions": ["update"] },
+        "paid_by": { "writable_by": [], "actions": ["update"] },
+        "amount_cents": { "writable_by": [], "actions": ["update"] },
+        "description": { "writable_by": [], "actions": ["update"] },
+        "category": { "writable_by": [], "actions": ["update"] },
+        "date": { "writable_by": [], "actions": ["update"] },
+        "split_type": { "writable_by": [], "actions": ["update"] },
+        "created_at": { "writable_by": [], "actions": ["update"] },
+        "receipt_file_id": { "writable_by": [], "actions": ["update"] },
+        "recurring_id": { "writable_by": [], "actions": ["update"] },
+        "occurrence_date": { "writable_by": [], "actions": ["update"] }
+      }
     },
     "expense_splits": {
       "kind": "adult_writable",
-      "audit_writes": true
+      "audit_writes": true,
+      "kept_in_record_mode": true,
+      "column_write_acls": {
+        "id": { "writable_by": [], "actions": ["update"] },
+        "expense_id": { "writable_by": [], "actions": ["update"] },
+        "member_id": { "writable_by": [], "actions": ["update"] },
+        "amount_cents": { "writable_by": [], "actions": ["update"] }
+      }
     },
     "settlements": {
       "kind": "adult_writable",
-      "audit_writes": true
+      "audit_writes": true,
+      "kept_in_record_mode": true,
+      "column_write_acls": {
+        "id": { "writable_by": [], "actions": ["update"] },
+        "from_id": { "writable_by": [], "actions": ["update"] },
+        "to_id": { "writable_by": [], "actions": ["update"] },
+        "amount_cents": { "writable_by": [], "actions": ["update"] },
+        "note": { "writable_by": [], "actions": ["update"] },
+        "settled_at": { "writable_by": [], "actions": ["update"] },
+        "created_at": { "writable_by": [], "actions": ["update"] },
+        "reverses_id": { "writable_by": [], "actions": ["update"] }
+      }
     },
     "category_splits": {
       "kind": "adult_writable"
@@ -138,10 +171,16 @@
     ]
   },
   "member_references": {
-    "expenses": {
-      "column": "paid_by",
-      "on_removed": "keep"
-    },
+    "expenses": [
+      {
+        "column": "paid_by",
+        "on_removed": "keep"
+      },
+      {
+        "column": "voided_by_id",
+        "on_removed": "keep"
+      }
+    ],
     "expense_splits": {
       "column": "member_id",
       "on_removed": "keep"
@@ -186,6 +225,7 @@
     }
   },
   "db_plaintext_columns": [
+    "amount_cents",
     "date",
     "split_type",
     "remind",
@@ -253,10 +293,10 @@
       {
         "id": "ledger",
         "title": "Expense ledger",
-        "description": "Every expense in the range: what it was, who paid, and how it was split.",
+        "description": "Every expense in the range: what it was, who paid, and how it was split. An expense someone removed is still listed, with when, by whom and why as the app recorded them; it no longer counts toward balances. The change history shows which member actually made each change. Check flags an expense whose amount is not a whole number of cents (it counts as nothing) or whose shares do not add up to its amount (balances count the shares as recorded).",
         "source": {
           "kind": "sql",
-          "query": "SELECT e.date AS date, e.description AS description, e.category AS category, e.paid_by AS paid_by, e.amount_cents AS amount_cents, e.split_type AS split_type FROM app_expense_splitter__expenses e WHERE e.date >= :range_start AND e.date <= :range_end ORDER BY e.date, e.created_at"
+          "query": "SELECT e.date AS date, e.description AS description, e.category AS category, e.paid_by AS paid_by, e.amount_cents AS amount_cents, e.split_type AS split_type, e.voided_at AS removed_at, e.voided_by_id AS removed_by, CASE WHEN e.voided_at IS NOT NULL THEN e.void_reason END AS removed_reason, CASE WHEN typeof(e.amount_cents) <> 'integer' THEN 'Amount is not a whole number of cents' WHEN COUNT(s.id) = 0 OR SUM(typeof(s.amount_cents) <> 'integer') > 0 OR SUM(s.amount_cents) <> e.amount_cents THEN 'Shares do not add up to the amount' END AS problem FROM app_expense_splitter__expenses e LEFT JOIN app_expense_splitter__expense_splits s ON s.expense_id = e.id WHERE e.date >= :range_start AND e.date <= :range_end GROUP BY e.id ORDER BY e.date, e.created_at"
         },
         "columns": [
           {
@@ -285,16 +325,34 @@
           {
             "key": "split_type",
             "label": "Split"
+          },
+          {
+            "key": "removed_at",
+            "label": "Removed (as recorded)",
+            "format": "datetime"
+          },
+          {
+            "key": "removed_by",
+            "label": "Removed by (as recorded)",
+            "format": "member"
+          },
+          {
+            "key": "removed_reason",
+            "label": "Why removed"
+          },
+          {
+            "key": "problem",
+            "label": "Check"
           }
         ]
       },
       {
         "id": "shares",
         "title": "Who owed what",
-        "description": "One line per person per expense — the share each member was allocated, which is what an accountant or a mediator actually asks for.",
+        "description": "One line per person per expense — the share each member was allocated, which is what an accountant or a mediator actually asks for. Shares of a removed expense are listed with the time it was removed.",
         "source": {
           "kind": "sql",
-          "query": "SELECT e.date AS date, e.description AS description, e.category AS category, s.member_id AS member_id, s.amount_cents AS share_cents, e.paid_by AS paid_by, e.amount_cents AS expense_cents FROM app_expense_splitter__expense_splits s JOIN app_expense_splitter__expenses e ON e.id = s.expense_id WHERE e.date >= :range_start AND e.date <= :range_end ORDER BY e.date, e.created_at"
+          "query": "SELECT e.date AS date, e.description AS description, e.category AS category, s.member_id AS member_id, s.amount_cents AS share_cents, e.paid_by AS paid_by, e.amount_cents AS expense_cents, e.voided_at AS removed_at FROM app_expense_splitter__expense_splits s JOIN app_expense_splitter__expenses e ON e.id = s.expense_id WHERE e.date >= :range_start AND e.date <= :range_end ORDER BY e.date, e.created_at"
         },
         "columns": [
           {
@@ -329,16 +387,21 @@
             "key": "expense_cents",
             "label": "Expense total",
             "format": "money_cents"
+          },
+          {
+            "key": "removed_at",
+            "label": "Removed",
+            "format": "datetime"
           }
         ]
       },
       {
         "id": "settlements",
         "title": "Payments recorded",
-        "description": "Money moved between members through Settle, newest last. A reimbursement request recorded as paid is listed in Countersigned reimbursements, as settled, with the day it was paid as its last activity. A request paid in an earlier version of the app also has a row here.",
+        "description": "Money moved between members through Settle, newest last. A payment recorded by mistake is answered by a reversal, the same amount the other way, which names the payment it reverses; both stay listed. A reimbursement request recorded as paid is listed in Countersigned reimbursements, as settled, with the day it was paid as its last activity. A request paid in an earlier version of the app also has a row here.",
         "source": {
           "kind": "sql",
-          "query": "SELECT p.settled_at AS settled_at, p.from_id AS from_id, p.to_id AS to_id, p.amount_cents AS amount_cents, p.note AS note FROM app_expense_splitter__settlements p WHERE substr(p.settled_at, 1, 10) >= :range_start AND substr(p.settled_at, 1, 10) <= :range_end ORDER BY p.settled_at"
+          "query": "SELECT p.settled_at AS settled_at, p.from_id AS from_id, p.to_id AS to_id, p.amount_cents AS amount_cents, p.note AS note, o.settled_at AS reverses_paid_at FROM app_expense_splitter__settlements p LEFT JOIN app_expense_splitter__settlements o ON o.id = p.reverses_id AND o.from_id = p.to_id AND o.to_id = p.from_id AND typeof(p.amount_cents) = 'integer' AND o.amount_cents = p.amount_cents WHERE substr(p.settled_at, 1, 10) >= :range_start AND substr(p.settled_at, 1, 10) <= :range_end ORDER BY p.settled_at"
         },
         "columns": [
           {
@@ -364,6 +427,11 @@
           {
             "key": "note",
             "label": "Note"
+          },
+          {
+            "key": "reverses_paid_at",
+            "label": "Reverses the payment of",
+            "format": "datetime"
           }
         ]
       },

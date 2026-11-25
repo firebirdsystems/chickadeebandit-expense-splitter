@@ -19,6 +19,139 @@ export function categoryFor(id) {
   return CATEGORIES.find(c => c.id === id) ?? CATEGORIES[CATEGORIES.length - 1];
 }
 
+// ── Removed expenses and reversed payments ──────────────────────────────────
+//
+// A shared expense is never deleted. "Remove" stamps the three void columns in
+// one UPDATE; the row, its splits and its receipt stay, and the export lists it
+// with who removed it, when and why. Balances, summaries and settle-up read
+// only the live rows. Removing is final, like reversing a payment: a mistaken
+// removal is answered by adding the expense again. Every other column is locked
+// against UPDATE by the manifest, so a correction is Remove, then add again.
+//
+// A payment recorded by mistake is never deleted either: it is answered by a
+// payment the other way that names it in `reverses_id`.
+
+/** Whether an expense has been removed. */
+export function isVoided(expense) {
+  // Any non-NULL value, '' included: the named queries filter on
+  // `voided_at IS NULL`, and the page must count the same rows they do.
+  return expense?.voided_at != null;
+}
+
+/** The expenses that count: everything not removed. */
+export function liveExpenses(expenses) {
+  return (expenses ?? []).filter(e => !isVoided(e));
+}
+
+/** The longest reason a removal may carry. */
+export const VOID_REASON_MAX = 200;
+
+/**
+ * The UPDATE that removes an expense. Guarded on `voided_at IS NULL`, so a
+ * second parent removing the same expense at the same moment changes nothing
+ * and the first removal's who-and-why stands. A blank reason is written as
+ * NULL: the column is encrypted, and the codec refuses an empty string.
+ */
+export function voidStatement(expenseId, memberId, reason, now) {
+  const why = String(reason ?? '').trim().slice(0, VOID_REASON_MAX);
+  return {
+    sql: 'UPDATE app_expense_splitter__expenses SET voided_at = ?, voided_by_id = ?, void_reason = ? WHERE id = ? AND voided_at IS NULL',
+    params: [now, memberId, why || null, expenseId],
+  };
+}
+
+/** Ids of the payments some later payment reverses. */
+export function reversedPaymentIds(settlements) {
+  return reversalPairs(settlements).reversed;
+}
+
+/**
+ * The reversals that count, and the payments they reverse. A row counts as a
+ * reversal only when it is the true reverse of the payment it names: the same
+ * amount, between the same two people, the other way. The hub cannot check
+ * that, so a row that names a payment but does not match it is an ordinary
+ * payment: it is not tagged, and it does not stop the payment being reversed.
+ */
+export function reversalPairs(settlements) {
+  const byId = new Map((settlements ?? []).filter(Boolean).map(s => [s.id, s]));
+  const reversed = new Set();
+  const reversals = new Set();
+  for (const s of settlements ?? []) {
+    const original = s?.reverses_id ? byId.get(s.reverses_id) : undefined;
+    if (original && isReversalOf(s, original)) {
+      reversed.add(original.id);
+      reversals.add(s.id);
+    }
+  }
+  return { reversed, reversals };
+}
+
+/**
+ * An amount as the record counts it: a whole number of cents, or null. SQLite
+ * keeps a value it cannot read as a number ('0x1388', '', 'abc') as TEXT even
+ * in an INTEGER column, and a member can write one through the API. Number()
+ * would read '0x1388' as 5000 while SQL reads it as 0, so the page, the AI's
+ * queries and the export would each count it differently. One rule instead:
+ * an amount counts only when it is stored as an integer, the same test as
+ * `typeof(amount_cents) = 'integer'` in SQL; anything else counts as nothing.
+ */
+export function cents(value) {
+  return Number.isInteger(value) ? value : null;
+}
+
+/** Whether `row` is the true reverse of `payment`. */
+export function isReversalOf(row, payment) {
+  return !!row && !!payment && row.reverses_id === payment.id
+    && row.from_id === payment.to_id && row.to_id === payment.from_id
+    && cents(row.amount_cents) !== null
+    && cents(row.amount_cents) === cents(payment.amount_cents);
+}
+
+/**
+ * Whether a payment can still be reversed: it is not itself a reversal and
+ * nothing reverses it yet (both as reversalPairs counts them). A reversal of a reversal would be a third payment
+ * in a chain nobody can follow; recording the payment again is clearer.
+ * `reversed` lets a caller checking many payments build the set once.
+ */
+export function canReverse(payment, settlements, pairs = reversalPairs(settlements)) {
+  // A payment whose amount does not count moves no money, so there is nothing
+  // to reverse, and its reversal could never match it.
+  if (!payment || cents(payment.amount_cents) === null) return false;
+  return !pairs.reversals.has(payment.id) && !pairs.reversed.has(payment.id);
+}
+
+/** The payment that reverses `payment`: the same amount the other way, with a
+ *  note saying which one it answers. */
+export function reversalOf(payment, dateLabel) {
+  return {
+    from_id: payment.to_id,
+    to_id: payment.from_id,
+    amount_cents: cents(payment.amount_cents) ?? 0,
+    note: `Reverses the payment of ${dateLabel}`,
+    reverses_id: payment.id,
+  };
+}
+
+/**
+ * What is wrong with how an expense is recorded, or null. The page only ever
+ * writes an expense whose shares add up to its amount, but a member with API
+ * access can add a split row to an existing expense (each member can appear
+ * once per expense: the unique index in migration 006) or store an amount that
+ * is not a whole number of cents. Balances still count what is recorded, so the
+ * page and the export flag the expense rather than guess which row is wrong.
+ * `splits` is the expense's own split rows.
+ */
+export function expenseProblem(expense, splits) {
+  const amount = cents(expense?.amount_cents);
+  if (amount === null) return "The amount isn't a whole number of cents, so the expense counts as nothing.";
+  const list = splits ?? [];
+  const total = list.reduce((sum, s) => sum + (cents(s.amount_cents) ?? 0), 0);
+  if (list.some(s => cents(s.amount_cents) === null) || total !== amount) {
+    return "The shares don't add up to the amount. Balances count the shares as recorded.";
+  }
+  return null;
+}
+
 /**
  * Compute net balance for each member from expenses, splits, and settlements.
  * Positive  = this member is owed money (creditor).
@@ -33,6 +166,15 @@ export function categoryFor(id) {
  */
 export function computeBalances(expenses, splits, settlements) {
   const balance = {};
+  // A removed expense stays in the record but no longer moves money: its
+  // splits are skipped with it. Its payer is not even seeded at zero, so a
+  // member whose only expense was removed drops out of the map entirely.
+  // An amount that is not a whole number of cents counts as nothing (cents()):
+  // an expense with one moves no money, whatever its shares say, as summarize()
+  // and expenseProblem() already report it.
+  expenses = liveExpenses(expenses).filter(e => cents(e.amount_cents) !== null);
+  splits = (splits ?? []).filter(s => cents(s.amount_cents) !== null);
+  settlements = (settlements ?? []).filter(s => cents(s.amount_cents) !== null);
 
   // Group splits by expense once (O(splits)) so the per-expense loop is O(1)
   // lookup instead of re-scanning every split for each expense (was O(n·m)).
@@ -80,10 +222,10 @@ export function computeBalances(expenses, splits, settlements) {
 export function requestPaymentIds(settlements, requests) {
   const closes = new Set((requests ?? [])
     .filter(r => r.status === 'settled')
-    .map(r => `${r.payer_id}|${r.requester_id}|${Number(r.amount_cents)}|${r.updated_at}`));
+    .map(r => `${r.payer_id}|${r.requester_id}|${cents(r.amount_cents)}|${r.updated_at}`));
   const ids = new Set();
   for (const s of settlements ?? []) {
-    if (closes.has(`${s.from_id}|${s.to_id}|${Number(s.amount_cents)}|${s.settled_at}`)) ids.add(s.id);
+    if (closes.has(`${s.from_id}|${s.to_id}|${cents(s.amount_cents)}|${s.settled_at}`)) ids.add(s.id);
   }
   return ids;
 }
@@ -562,9 +704,10 @@ export function lastCalendarDay(bound) {
   return `${m[1]}-${m[2]}-${String(day).padStart(2, '0')}`;
 }
 
-/** Expenses whose `date` falls inside an inclusive range; null bounds are open. */
+/** Live expenses whose `date` falls inside an inclusive range; null bounds are
+ *  open. A removed expense is in no range: the summary does not count it. */
 export function expensesInRange(expenses, { from = null, to = null } = {}) {
-  return (expenses ?? []).filter(e => {
+  return liveExpenses(expenses).filter(e => {
     if (!e.date) return from === null && to === null;
     if (from !== null && e.date < from) return false;
     if (to !== null && e.date > to) return false;
@@ -582,7 +725,9 @@ export function expensesInRange(expenses, { from = null, to = null } = {}) {
  */
 export function summarize(expenses, splits, range = {}) {
   const inRange = expensesInRange(expenses, range);
-  const ids = new Set(inRange.map(e => e.id));
+  // Shares count only for an expense whose amount counts (cents()), as in
+  // computeBalances: otherwise By person shows a debt the balance does not.
+  const ids = new Set(inRange.filter(e => cents(e.amount_cents) !== null).map(e => e.id));
 
   let total = 0;
   const byCategory = new Map();
@@ -594,18 +739,18 @@ export function summarize(expenses, splits, range = {}) {
   };
 
   for (const e of inRange) {
-    const cents = Number(e.amount_cents) || 0;
-    total += cents;
+    const amount = cents(e.amount_cents) ?? 0;
+    total += amount;
     const cat = byCategory.get(e.category) ?? { category: e.category, total_cents: 0, count: 0 };
-    cat.total_cents += cents;
+    cat.total_cents += amount;
     cat.count += 1;
     byCategory.set(e.category, cat);
-    member(e.paid_by).paid_cents += cents;
+    member(e.paid_by).paid_cents += amount;
   }
 
   for (const s of splits ?? []) {
     if (!ids.has(s.expense_id)) continue;
-    member(s.member_id).share_cents += Number(s.amount_cents) || 0;
+    member(s.member_id).share_cents += cents(s.amount_cents) ?? 0;
   }
 
   return {
@@ -1207,6 +1352,8 @@ export function reminderSyncStatement(template, held) {
 
 /** "id|date" keys of the occurrences already in the ledger, built once per
  *  posting run so each due date is a lookup rather than a scan. */
+// Removed occurrences are deliberately included: the template has already moved
+// past their date, and counting a removed one as unposted would post it again.
 export function postedOccurrenceKeys(expenses) {
   const keys = new Set();
   for (const e of expenses ?? []) {
